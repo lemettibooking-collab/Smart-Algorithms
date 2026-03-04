@@ -35,10 +35,12 @@ type HotResponse = {
     mode?: string;
     degraded?: boolean;
     degradeReason?: string;
-    ws?: any;
+    ws?: unknown;
 };
 
 type AlertRow = {
+    id: string;
+    bucketTs: number;
     ts: number;
     tf: string;
 
@@ -64,9 +66,18 @@ type AlertRow = {
     mergedFrom?: Array<{ exchange: Exchange; symbol: string; score: number }>;
 };
 
-const TTL_MS = 1500;
-const alertsCache = new TTLCache<any>(TTL_MS, 2000);
-const alertsInFlight = new InFlight<any>();
+type AlertsPayload = {
+    tf: string;
+    ts: number;
+    data: AlertRow[];
+    sources?: unknown;
+    error?: string;
+    cache: { hit: boolean; ttlMs: number };
+};
+
+const TTL_MS = 5000;
+const alertsCache = new TTLCache<AlertsPayload>(TTL_MS, 2000);
+const alertsInFlight = new InFlight<AlertsPayload>();
 
 function clamp(n: number, a: number, b: number) {
     return Math.max(a, Math.min(b, n));
@@ -77,10 +88,34 @@ function isNonCalm(signal: string | undefined) {
     return !!s && s !== "calm";
 }
 
-function normalizeScore(x: any) {
+function normalizeScore(x: unknown) {
     const n = Number(x ?? 0);
     if (!Number.isFinite(n)) return 0;
     return clamp(n, 0, 10);
+}
+
+function bucketTsForTf(ts: number, tf: string): number {
+    const raw = String(tf ?? "").trim();
+    const t = raw.toLowerCase();
+    const minuteMap: Record<string, number> = {
+        "1m": 60_000,
+        "3m": 3 * 60_000,
+        "5m": 5 * 60_000,
+        "15m": 15 * 60_000,
+        "30m": 30 * 60_000,
+        "1h": 60 * 60_000,
+        "2h": 2 * 60 * 60_000,
+        "4h": 4 * 60 * 60_000,
+        "6h": 6 * 60 * 60_000,
+        "12h": 12 * 60 * 60_000,
+        "1d": 24 * 60 * 60_000,
+        "24h": 24 * 60 * 60_000,
+        "1w": 7 * 24 * 60 * 60_000,
+        "1month": 30 * 24 * 60 * 60_000,
+    };
+    const ms = raw === "1M" ? minuteMap["1month"] : minuteMap[t];
+    if (!ms || !Number.isFinite(ms) || ms <= 0) return ts;
+    return Math.floor(ts / ms) * ms;
 }
 
 function toAlertRow(row: HotRow, tf: string, ts: number): AlertRow {
@@ -101,8 +136,12 @@ function toAlertRow(row: HotRow, tf: string, ts: number): AlertRow {
                 : null;
 
     const baseAsset = String(row.baseAsset ?? "").trim().toUpperCase();
+    const bucketTs = bucketTsForTf(ts, tf);
+    const id = `${baseAsset}:${tf}:${bucketTs}`;
 
     return {
+        id,
+        bucketTs,
         ts,
         tf,
         baseAsset,
@@ -121,16 +160,16 @@ function toAlertRow(row: HotRow, tf: string, ts: number): AlertRow {
     };
 }
 
-function dedupeByBaseAssetPreferBinance(rows: AlertRow[]) {
-    const byBase = new Map<string, AlertRow>();
+function dedupeByKeyPreferBinance(rows: AlertRow[]) {
+    const byKey = new Map<string, AlertRow>();
 
     for (const r of rows) {
-        const k = String(r.baseAsset ?? "").toUpperCase();
+        const k = String(r.id ?? "");
         if (!k) continue;
 
-        const prev = byBase.get(k);
+        const prev = byKey.get(k);
         if (!prev) {
-            byBase.set(k, r);
+            byKey.set(k, r);
             continue;
         }
 
@@ -155,10 +194,10 @@ function dedupeByBaseAssetPreferBinance(rows: AlertRow[]) {
             { exchange: other.exchange, symbol: other.symbol, score: other.score },
         ];
 
-        byBase.set(k, { ...chosen, mergedFrom });
+        byKey.set(k, { ...chosen, mergedFrom });
     }
 
-    return Array.from(byBase.values());
+    return Array.from(byKey.values());
 }
 
 async function safeJson<T>(res: Response): Promise<T | null> {
@@ -259,7 +298,7 @@ export async function GET(req: Request) {
                 return true;
             });
 
-            const rows = dedupe ? dedupeByBaseAssetPreferBinance(filtered) : filtered;
+            const rows = dedupe ? dedupeByKeyPreferBinance(filtered) : filtered;
 
             sortRows(rows, sort);
 
@@ -292,12 +331,18 @@ export async function GET(req: Request) {
 
             alertsCache.set(cacheKey, payload, TTL_MS);
             return payload;
-        } catch (e: any) {
+        } catch (e: unknown) {
+            const msg =
+                e instanceof Error
+                    ? e.message
+                    : typeof e === "string"
+                        ? e
+                        : "alerts_failed";
             const payload = {
                 tf,
                 ts: now,
                 data: [],
-                error: String(e?.message ?? e ?? "alerts_failed"),
+                error: msg,
                 cache: { hit: false, ttlMs: TTL_MS },
             };
             alertsCache.set(cacheKey, payload, 800);
