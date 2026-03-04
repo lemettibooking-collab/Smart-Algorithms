@@ -1,2 +1,3 @@
 export { EventsFeed } from "@/src/widgets/events-feed/ui/EventsFeed";
-export { useEventsFeed, type EventRow, type AlertRow } from "@/src/widgets/events-feed/model/useEventsFeed";
+export { useEventsFeed } from "@/src/widgets/events-feed/model/useEventsFeed";
+export type { EventRow, AlertRow } from "@/src/entities/event";
