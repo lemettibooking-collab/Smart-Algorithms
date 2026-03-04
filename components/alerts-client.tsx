@@ -22,6 +22,7 @@ type AlertRow = {
     change24hPercent: number;
 
     volSpike: number | null;
+    quoteVol24h?: number;
 
     marketCapRaw: number | null;
     marketCap?: string;
@@ -204,6 +205,16 @@ function fmtPrice(x: number) {
     if (n >= 1000) return n.toFixed(2);
     if (n >= 1) return n.toFixed(4);
     return n.toPrecision(4);
+}
+
+function fmtCompact(n: number | null | undefined) {
+    const v = Number(n ?? 0);
+    if (!Number.isFinite(v) || v <= 0) return "—";
+    if (v >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
+    if (v >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+    if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+    if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+    return v.toFixed(0);
 }
 
 function errMsg(e: unknown) {
@@ -716,6 +727,18 @@ export default function AlertsClient() {
                 >
                     {loading ? "Loading..." : "Refresh"}
                 </button>
+                {mode === "table" ? (
+                    <button
+                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/80 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
+                        onClick={() => {
+                            setRows([]);
+                            setErr(null);
+                        }}
+                        type="button"
+                    >
+                        Clear table
+                    </button>
+                ) : null}
 
                 {err ? <span className="text-sm text-red-400">{err}</span> : null}
 
@@ -851,11 +874,10 @@ export default function AlertsClient() {
                                     <th className="px-4 py-3">Price</th>
                                     <th className="px-4 py-3">Δ(tf)</th>
                                     <th className="px-4 py-3">24h%</th>
+                                    <th className="px-4 py-3">Vol 24h</th>
                                     <th className="px-4 py-3">Score</th>
                                     <th className="px-4 py-3">Signal</th>
                                     <th className="px-4 py-3">VolSpike</th>
-                                    <th className="px-4 py-3">MCap</th>
-                                    <th className="px-4 py-3">Merged</th>
                                 </tr>
                             </thead>
                             <tbody className="text-sm text-white/80 leading-5">
@@ -882,18 +904,15 @@ export default function AlertsClient() {
                                         <td className="px-4 py-3">{fmtPrice(r.price)}</td>
                                         <td className="px-4 py-3">{fmtPct(r.changePercent)}</td>
                                         <td className="px-4 py-3">{fmtPct(r.change24hPercent)}</td>
+                                        <td className="px-4 py-3">{fmtCompact(r.quoteVol24h)}</td>
                                         <td className="px-4 py-3">{(r.score ?? 0).toFixed(2)}</td>
                                         <td className="px-4 py-3">{r.signal}</td>
                                         <td className="px-4 py-3">{r.volSpike == null ? "—" : `${r.volSpike.toFixed(2)}x`}</td>
-                                        <td className="px-4 py-3">{r.marketCap ?? (r.marketCapRaw === null ? "—" : String(r.marketCapRaw))}</td>
-                                        <td className="px-4 py-3 text-xs text-white/50">
-                                            {r.mergedFrom?.length ? r.mergedFrom.map((x) => `${x.exchange}:${x.symbol}`).join(", ") : "—"}
-                                        </td>
                                     </tr>
                                 ))}
                                 {!rows.length && !loading ? (
                                     <tr>
-                                        <td className="p-3 text-sm opacity-70" colSpan={10}>No data</td>
+                                        <td className="p-3 text-sm opacity-70" colSpan={9}>No data</td>
                                     </tr>
                                 ) : null}
                             </tbody>
