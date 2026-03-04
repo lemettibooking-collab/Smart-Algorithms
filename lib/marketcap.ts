@@ -1,5 +1,6 @@
 // lib/marketcap.ts
 import { TTLCache, InFlight, fetchWithRetry } from "@/lib/server-cache";
+import { cacheGet, cacheSet, cacheSweepExpired } from "@/lib/repos/cacheRepo";
 
 export type MarketInfo = {
     cap: number;
@@ -14,9 +15,32 @@ const capInFlight = new InFlight<CapMap>();
 // ✅ последняя успешная карта (чтобы не “пропадала” при 429)
 let lastGoodMap: CapMap | null = null;
 
-function num(v: any, fallback = 0) {
+function num(v: unknown, fallback = 0) {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
+}
+
+type MarketInfoEntry = [string, MarketInfo];
+
+function toEntries(map: CapMap): MarketInfoEntry[] {
+    return Array.from(map.entries());
+}
+
+function fromEntries(entries: unknown): CapMap | null {
+    if (!Array.isArray(entries)) return null;
+    const out: CapMap = new Map();
+    for (const item of entries) {
+        if (!Array.isArray(item) || item.length < 2) continue;
+        const sym = String(item[0] ?? "").trim().toUpperCase();
+        const v = item[1];
+        if (!sym || !v || typeof v !== "object") continue;
+        const obj = v as Record<string, unknown>;
+        const cap = Number(obj.cap ?? 0);
+        if (!Number.isFinite(cap) || cap <= 0) continue;
+        const logoUrl = typeof obj.logoUrl === "string" ? obj.logoUrl : null;
+        out.set(sym, { cap, logoUrl });
+    }
+    return out.size > 0 ? out : null;
 }
 
 export async function getMarketCapMap(): Promise<CapMap> {
@@ -24,6 +48,13 @@ export async function getMarketCapMap(): Promise<CapMap> {
 
     const cached = capCache.get(cacheKey);
     if (cached && cached.size > 0) return cached;
+
+    const sqliteCached = fromEntries(cacheGet<unknown>(`sql:${cacheKey}`));
+    if (sqliteCached && sqliteCached.size > 0) {
+        capCache.set(cacheKey, sqliteCached, 10 * 60_000);
+        lastGoodMap = sqliteCached;
+        return sqliteCached;
+    }
 
     const inflight = capInFlight.get(cacheKey);
     if (inflight) return inflight;
@@ -36,6 +67,8 @@ export async function getMarketCapMap(): Promise<CapMap> {
             if (map.size > 50) {
                 lastGoodMap = map;
                 capCache.set(cacheKey, map);
+                cacheSet(`sql:${cacheKey}`, toEntries(map), 12 * 60 * 60_000);
+                cacheSweepExpired(200);
                 return map;
             }
 
@@ -44,14 +77,20 @@ export async function getMarketCapMap(): Promise<CapMap> {
 
             // иначе вернём что есть (пусть даже пусто)
             capCache.set(cacheKey, map);
+            if (map.size > 0) {
+                cacheSet(`sql:${cacheKey}`, toEntries(map), 6 * 60 * 60_000);
+            }
             return map;
-        } catch (e: any) {
-            console.log("[mcap] getMarketCapMap failed:", String(e?.message ?? e));
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.log("[mcap] getMarketCapMap failed:", msg);
             // ✅ при ошибке — не “обнуляем” капитализацию
             if (lastGoodMap && lastGoodMap.size > 0) return lastGoodMap;
             // если есть хоть какой-то cached (даже пустой) — его
             const c = capCache.get(cacheKey);
             if (c) return c;
+            const sql = fromEntries(cacheGet<unknown>(`sql:${cacheKey}`));
+            if (sql && sql.size > 0) return sql;
             return new Map();
         }
     })();
@@ -75,8 +114,9 @@ async function fetchCoinGeckoTopCapMap(opts: { pages: number; perPage: number })
         let res: Response;
         try {
             res = await fetchWithRetry(url, { method: "GET", cache: "no-store" }, { retries: 1 });
-        } catch (e: any) {
-            console.log("[mcap] CoinGecko fetch error:", String(e?.message ?? e));
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.log("[mcap] CoinGecko fetch error:", msg);
             break;
         }
 
@@ -87,13 +127,16 @@ async function fetchCoinGeckoTopCapMap(opts: { pages: number; perPage: number })
 
         if (!res.ok) break;
 
-        const json = (await res.json()) as any[];
+        const json = (await res.json()) as unknown;
         if (!Array.isArray(json) || json.length === 0) break;
 
         for (const row of json) {
-            const sym = String(row?.symbol ?? "").trim().toUpperCase();
-            const cap = num(row?.market_cap, 0);
-            const logoUrl = typeof row?.image === "string" && row.image.trim() ? row.image.trim() : null;
+            if (!row || typeof row !== "object") continue;
+            const obj = row as Record<string, unknown>;
+            const sym = String(obj.symbol ?? "").trim().toUpperCase();
+            const cap = num(obj.market_cap, 0);
+            const image = typeof obj.image === "string" ? obj.image : "";
+            const logoUrl = image.trim() ? image.trim() : null;
 
             if (!sym || cap <= 0) continue;
 

@@ -1,6 +1,7 @@
 // app/api/alerts/events/route.ts
 import { NextResponse } from "next/server";
 import { TTLCache, InFlight } from "@/lib/server-cache";
+import { computeEventId, listEvents, putEvent } from "@/lib/repos/eventsRepo";
 
 export const runtime = "nodejs";
 
@@ -71,6 +72,69 @@ function clamp(n: number, a: number, b: number) {
 
 function keyOf(r: AlertRow) {
     return r.id ?? `${r.tf}:${r.baseAsset}`;
+}
+
+function isExchange(v: unknown): v is Exchange {
+    return v === "binance" || v === "mexc";
+}
+
+function asNumber(v: unknown, fallback = 0): number {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function asString(v: unknown, fallback = ""): string {
+    const s = typeof v === "string" ? v : String(v ?? "");
+    const out = s.trim();
+    return out || fallback;
+}
+
+function asNullableNumber(v: unknown): number | null {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+}
+
+function mapPayloadToEventRow(payload: Record<string, unknown>): EventRow | null {
+    const exchange = payload.exchange;
+    if (!isExchange(exchange)) return null;
+
+    const eventType = payload.eventType;
+    if (eventType !== "signal_change" && eventType !== "score_jump") return null;
+
+    const ts = asNumber(payload.ts, 0);
+    const symbol = asString(payload.symbol, "");
+    const tf = asString(payload.tf, "");
+    const baseAsset = asString(payload.baseAsset, "");
+    if (!ts || !symbol || !tf || !baseAsset) return null;
+
+    const row: EventRow = {
+        id: typeof payload.id === "string" ? payload.id : undefined,
+        bucketTs: asNullableNumber(payload.bucketTs) ?? undefined,
+        ts,
+        tf,
+        baseAsset,
+        exchange,
+        symbol,
+        price: asNumber(payload.price, 0),
+        score: asNumber(payload.score, 0),
+        signal: asString(payload.signal, "Calm"),
+        changePercent: asNumber(payload.changePercent, 0),
+        change24hPercent: asNumber(payload.change24hPercent, 0),
+        volSpike: asNullableNumber(payload.volSpike),
+        marketCapRaw: asNullableNumber(payload.marketCapRaw),
+        marketCap: typeof payload.marketCap === "string" ? payload.marketCap : undefined,
+        logoUrl: typeof payload.logoUrl === "string" ? payload.logoUrl : null,
+        iconUrl: typeof payload.iconUrl === "string" ? payload.iconUrl : null,
+        mergedFrom: Array.isArray(payload.mergedFrom)
+            ? (payload.mergedFrom as Array<{ exchange: Exchange; symbol: string; score: number }>)
+            : undefined,
+        eventId: asString(payload.eventId, ""),
+        eventType,
+        prevSignal: typeof payload.prevSignal === "string" ? payload.prevSignal : null,
+        prevScore: asNullableNumber(payload.prevScore),
+    };
+
+    return row.eventId ? row : null;
 }
 
 async function safeJson<T>(res: Response): Promise<T | null> {
@@ -150,9 +214,20 @@ export async function GET(req: Request) {
 
                 if (signalChanged || scoreJumped) {
                     const eventType = signalChanged ? "signal_change" : "score_jump";
+                    const deterministicId = computeEventId({
+                        exchange: r.exchange,
+                        symbol: r.symbol,
+                        type: eventType,
+                        importantKey: signalChanged
+                            ? `signal:${r.signal}`
+                            : `scoreBucket:${Math.floor((r.score ?? 0) * 10)}`,
+                        bucketMs: signalChanged ? 60_000 : 30_000,
+                        ts: now,
+                    });
+
                     out.push({
                         ...r,
-                        eventId: `${r.id ?? k}:${eventType}:${r.signal}:${Math.round((r.score ?? 0) * 100)}`,
+                        eventId: deterministicId,
                         eventType,
                         prevSignal: prev.signal ?? null,
                         prevScore: prev.score ?? null,
@@ -166,18 +241,38 @@ export async function GET(req: Request) {
                 lastByKey.set(k, { signal: r.signal, score: r.score, ts: now }, 1000 * 60 * 60);
             }
 
-            // priority: signal changes first, then score
-            out.sort((a, b) => {
+            for (const ev of out) {
+                putEvent(
+                    {
+                        id: ev.eventId,
+                        ts: ev.ts,
+                        exchange: ev.exchange,
+                        symbol: ev.symbol,
+                        type: ev.eventType,
+                        payload: ev as unknown as Record<string, unknown>,
+                    },
+                    "ignore"
+                );
+            }
+
+            const persisted = listEvents({ limit: Math.min(2000, Math.max(limit * 6, 400)) });
+            const history = persisted
+                .map((r) => mapPayloadToEventRow(r.payload))
+                .filter((r): r is EventRow => !!r)
+                .filter((r) => r.tf === tf);
+
+            history.sort((a, b) => {
                 const pa = a.eventType === "signal_change" ? 0 : 1;
                 const pb = b.eventType === "signal_change" ? 0 : 1;
                 if (pa !== pb) return pa - pb;
+                if (b.ts !== a.ts) return b.ts - a.ts;
                 return (b.score ?? 0) - (a.score ?? 0);
             });
 
             const payload = {
                 tf,
                 ts: now,
-                data: out.slice(0, limit),
+                data: history.slice(0, limit),
                 sources: json.sources ?? null,
                 cache: { hit: false, ttlMs: TTL_MS },
             };
