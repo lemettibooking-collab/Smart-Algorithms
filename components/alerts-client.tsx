@@ -85,6 +85,8 @@ type AlertsPreset = {
 
 const PRESET_ID_KEY = "alerts:presetId";
 const FILTERS_KEY = "alerts:filters";
+const LS_EVENTS_KEY = "alerts:eventsCache:v1";
+const LS_EVENTS_META_KEY = "alerts:eventsCacheMeta:v1";
 const DEFAULT_PRESET_ID: AlertsPresetId = "balanced";
 
 const ALERTS_PRESETS: AlertsPreset[] = [
@@ -170,6 +172,26 @@ function asRecord(v: unknown): Record<string, unknown> | null {
     return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
 }
 
+function eventsStorageKeys(tf: string) {
+    return {
+        eventsKey: `${LS_EVENTS_KEY}:${tf}`,
+        metaKey: `${LS_EVENTS_META_KEY}:${tf}`,
+    };
+}
+
+function isValidEventRow(v: unknown): v is EventRow {
+    const o = asRecord(v);
+    if (!o) return false;
+    const hasEventId = typeof o.eventId === "string" && o.eventId.length > 0;
+    const hasTs = typeof o.ts === "number" && Number.isFinite(o.ts);
+    const hasSymbol = typeof o.symbol === "string" && o.symbol.length > 0;
+    return hasEventId || (hasTs && hasSymbol);
+}
+
+function eventStableKey(ev: EventRow): string {
+    return ev.eventId ?? `${ev.tf}:${ev.baseAsset ?? ev.symbol}:${ev.ts}:${ev.eventType ?? ev.signal ?? ""}:${Math.round((ev.score ?? 0) * 100)}`;
+}
+
 function fmtPct(x: number) {
     const n = Number(x ?? 0) || 0;
     const s = n >= 0 ? "+" : "";
@@ -224,8 +246,7 @@ export default function AlertsClient() {
     const [events, setEvents] = useState<EventRow[]>([]);
     const [sources, setSources] = useState<unknown>(null);
     const [err, setErr] = useState<string | null>(null);
-
-    const seenEventKeys = useRef<Set<string>>(new Set());
+    const eventsRef = useRef<EventRow[]>([]);
 
     function applyFiltersState(values: Partial<FiltersState>) {
         if (typeof values.tf === "string") setTf(values.tf);
@@ -317,20 +338,34 @@ export default function AlertsClient() {
 
             const incoming = Array.isArray(j.data) ? j.data : [];
 
-            // мерджим в локальный буфер (до 80 строк)
+            // Server data is source of truth; local cache is only UX bootstrap.
             setEvents((prev) => {
-                const next = [...prev];
-
+                const byKey = new Map<string, EventRow>();
+                const out: EventRow[] = [];
                 for (const ev of incoming) {
-                    // уникальность события: ts + baseAsset + signal + eventType
-                    const k = ev.eventId ?? `${ev.ts}:${ev.tf}:${ev.baseAsset}:${ev.eventType}:${ev.signal}:${ev.score.toFixed(2)}`;
-                    if (seenEventKeys.current.has(k)) continue;
-                    seenEventKeys.current.add(k);
-                    next.unshift(ev);
+                    if (!isValidEventRow(ev)) continue;
+                    const k = eventStableKey(ev);
+                    if (byKey.has(k)) continue;
+                    byKey.set(k, ev);
+                    out.push(ev);
+                }
+                for (const ev of prev) {
+                    const k = eventStableKey(ev);
+                    if (byKey.has(k)) continue;
+                    byKey.set(k, ev);
+                    out.push(ev);
+                }
+                const trimmed = out.slice(0, eventsLimit);
+
+                if (typeof window !== "undefined") {
+                    try {
+                        const { eventsKey, metaKey } = eventsStorageKeys(tf);
+                        window.localStorage.setItem(eventsKey, JSON.stringify(trimmed));
+                        window.localStorage.setItem(metaKey, JSON.stringify({ tf, updatedAt: Date.now() }));
+                    } catch { }
                 }
 
-                // trim до eventsLimit (по умолчанию 80)
-                return next.slice(0, eventsLimit);
+                return trimmed;
             });
         } catch (e: unknown) {
             setErr(errMsg(e));
@@ -347,7 +382,11 @@ export default function AlertsClient() {
 
     function clearEvents() {
         setEvents([]);
-        seenEventKeys.current = new Set();
+        if (typeof window !== "undefined") {
+            const { eventsKey, metaKey } = eventsStorageKeys(tf);
+            window.localStorage.removeItem(eventsKey);
+            window.localStorage.removeItem(metaKey);
+        }
     }
 
     useEffect(() => {
@@ -432,10 +471,36 @@ export default function AlertsClient() {
 
     useEffect(() => {
         // при смене режима — делаем первичную загрузку
-        if (mode === "events") loadEvents();
+        if (mode === "events") {
+            if (typeof window !== "undefined") {
+                const { eventsKey, metaKey } = eventsStorageKeys(tf);
+                const raw = window.localStorage.getItem(eventsKey);
+                if (raw) {
+                    try {
+                        const parsed = JSON.parse(raw) as unknown;
+                        if (Array.isArray(parsed)) {
+                            const valid = parsed.filter(isValidEventRow).slice(0, eventsLimit);
+                            if (valid.length > 0) {
+                                setEvents(valid);
+                            } else {
+                                window.localStorage.removeItem(eventsKey);
+                                window.localStorage.removeItem(metaKey);
+                            }
+                        } else {
+                            window.localStorage.removeItem(eventsKey);
+                            window.localStorage.removeItem(metaKey);
+                        }
+                    } catch {
+                        window.localStorage.removeItem(eventsKey);
+                        window.localStorage.removeItem(metaKey);
+                    }
+                }
+            }
+            loadEvents();
+        }
         else loadTable();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mode, tableQuery, eventsQuery]);
+    }, [mode, tf, eventsLimit, tableQuery, eventsQuery]);
 
     useEffect(() => {
         if (!auto) return;
@@ -443,6 +508,10 @@ export default function AlertsClient() {
         return () => clearInterval(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [auto, mode, tableQuery, eventsQuery]);
+
+    useEffect(() => {
+        eventsRef.current = events;
+    }, [events]);
 
     const kpi = useMemo(() => {
         const total = mode === "events" ? events.length : rows.length;
