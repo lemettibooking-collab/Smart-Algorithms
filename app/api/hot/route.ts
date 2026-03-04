@@ -409,7 +409,12 @@ function computeCandleVolSpikeFromCandles(candles: AnyCandle[], spikeMode: Spike
   return spike;
 }
 
-function applyIlliquidVolSpikeFilter(volSpike: number | null, candles: AnyCandle[], minSmaQuote: number, spikeMode: SpikeMode) {
+function applyIlliquidVolSpikeFilter(
+  volSpike: number | null,
+  candles: AnyCandle[],
+  minSmaQuote: number,
+  spikeMode: SpikeMode
+): number | null {
   if (volSpike == null) return null;
   const window = spikeWindowByMode(spikeMode);
   if (!candles || candles.length < window + 2) return null;
