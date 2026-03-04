@@ -39,6 +39,9 @@ type HotRow = {
   volumeRaw: number;
 
   volSpike: number | null;
+  spikeCandles?: number;
+  spikeNeed?: number;
+  newListing?: boolean;
   score: number;
   signal: string;
 
@@ -526,6 +529,7 @@ export async function GET(req: Request) {
   const tf = getTf(sp, "15m").trim();
   const spikeMode = getSpikeMode(sp);
   const spikeWindow = spikeWindowByMode(spikeMode);
+  const spikeNeed = spikeWindow + 1;
   const limitN = clamp(qNum(sp, "limit", 120), 1, 300);
 
   const klineCandidatesDefault = exchange === "mexc" ? 120 : limitN;
@@ -816,6 +820,7 @@ export async function GET(req: Request) {
         }
 
         let volSpike: number | null = null;
+        const spikeCandles = candles.length;
         if (candleSpike) {
           const spikeRaw = computeCandleVolSpikeFromCandles(candles, spikeMode);
           volSpike = spikeRaw;
@@ -856,6 +861,9 @@ export async function GET(req: Request) {
           volumeRaw: vol24hQuote,
           volume: formatCompact(vol24hQuote),
           volSpike,
+          spikeCandles,
+          spikeNeed,
+          newListing: spikeCandles < spikeNeed,
           score,
           signal,
           source: "klines",

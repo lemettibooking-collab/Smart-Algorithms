@@ -243,6 +243,10 @@ export function HotTable({
             {rows.map((r) => {
               const ch = Number((r as any).changePercent ?? 0);
               const ch24 = Number((r as any).change24hPercent ?? 0);
+              const isNewListing = (r as any).newListing === true;
+              const spikeCandles = Number((r as any).spikeCandles ?? 0);
+              const spikeNeed = Number((r as any).spikeNeed ?? 0);
+              const spikeModeLabel = spikeNeed <= 6 ? "Scalp" : "Pulse";
 
               const rowExchange = ((r as any).exchange as Exchange) ?? exchange;
               const baseAsset = ((r as any).baseAsset as string | null) ?? null;
@@ -282,6 +286,14 @@ export function HotTable({
                       <div className="min-w-0">
                         <div className="relative inline-flex items-center">
                           <span className="font-medium text-white/90 leading-tight">{(r as any).symbol}</span>
+                          {isNewListing ? (
+                            <span
+                              className="ml-1 inline-flex rounded border border-amber-400/45 bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200"
+                              title={`New listing / мало свечей: ${spikeCandles}/${spikeNeed} (${spikeModeLabel})`}
+                            >
+                              NEW
+                            </span>
+                          ) : null}
                           {(r as any).source === "fallback" ? (
                             <span
                               className="absolute -top-0.5 -right-3.5 flex h-2 w-2 items-center justify-center rounded-full bg-white/5 text-[8px] font-semibold text-white/40"
@@ -324,7 +336,16 @@ export function HotTable({
 
                   <td className="px-3 py-3 text-right tabular-nums text-white/70">{(r as any).volume}</td>
                   <td className="px-3 py-3 text-right tabular-nums text-white/70">{(r as any).marketCap ?? "—"}</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-white/70">{fmtSpike((r as any).volSpike)}</td>
+                  <td
+                    className="px-3 py-3 text-right tabular-nums text-white/70"
+                    title={
+                      (r as any).volSpike == null && isNewListing
+                        ? `Not enough candles: ${spikeCandles}/${spikeNeed}`
+                        : undefined
+                    }
+                  >
+                    {fmtSpike((r as any).volSpike)}
+                  </td>
 
                   <td className="px-3 py-3">
                     <span

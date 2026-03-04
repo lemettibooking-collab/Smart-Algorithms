@@ -24,6 +24,9 @@ export type HotSymbol = {
   volumeRaw?: number;
 
   volSpike: number | null;
+  spikeCandles?: number;
+  spikeNeed?: number;
+  newListing?: boolean;
   score: number;
   signal: string;
 
