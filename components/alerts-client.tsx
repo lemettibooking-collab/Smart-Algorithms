@@ -40,6 +40,18 @@ type EventRow = AlertRow & {
     prevScore?: number | null;
 };
 
+type Wall = {
+    price: number;
+    notional: number;
+    distancePct: number;
+    status: "NEW" | "HOLD" | "EATING" | "REMOVED";
+};
+
+type WallsResponse = {
+    ts: number;
+    data: Record<string, { bid?: Wall; ask?: Wall }>;
+};
+
 type AlertsResponse = {
     tf: string;
     ts: number;
@@ -255,6 +267,7 @@ export default function AlertsClient() {
     const [loading, setLoading] = useState(false);
     const [rows, setRows] = useState<AlertRow[]>([]);
     const [events, setEvents] = useState<EventRow[]>([]);
+    const [wallsMap, setWallsMap] = useState<Record<string, { bid?: Wall; ask?: Wall }>>({});
     const [sources, setSources] = useState<unknown>(null);
     const [err, setErr] = useState<string | null>(null);
     const eventsRef = useRef<EventRow[]>([]);
@@ -326,11 +339,31 @@ export default function AlertsClient() {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const j: AlertsResponse = await r.json();
             if (j.error) setErr(j.error);
-            setRows(Array.isArray(j.data) ? j.data : []);
+            const nextRows = Array.isArray(j.data) ? j.data : [];
+            setRows(nextRows);
             setSources(j.sources ?? null);
+
+            const symbols = Array.from(new Set(nextRows.map((x) => String(x.symbol ?? "").trim().toUpperCase()).filter(Boolean))).slice(0, 50);
+            if (symbols.length === 0) {
+                setWallsMap({});
+            } else {
+                try {
+                    const wr = await fetch(`/api/walls?symbols=${encodeURIComponent(symbols.join(","))}`, { cache: "no-store" });
+                    if (wr.ok) {
+                        const wj = (await wr.json()) as WallsResponse;
+                        const data = (typeof wj?.data === "object" && wj?.data !== null ? wj.data : {}) as Record<string, { bid?: Wall; ask?: Wall }>;
+                        setWallsMap(data);
+                    } else {
+                        setWallsMap({});
+                    }
+                } catch {
+                    setWallsMap({});
+                }
+            }
         } catch (e: unknown) {
             setErr(errMsg(e));
             setRows([]);
+            setWallsMap({});
             setSources(null);
         } finally {
             setLoading(false);
@@ -732,6 +765,7 @@ export default function AlertsClient() {
                         className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/80 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
                         onClick={() => {
                             setRows([]);
+                            setWallsMap({});
                             setErr(null);
                         }}
                         type="button"
@@ -875,6 +909,7 @@ export default function AlertsClient() {
                                     <th className="px-4 py-3">Δ(tf)</th>
                                     <th className="px-4 py-3">24h%</th>
                                     <th className="px-4 py-3">Vol 24h</th>
+                                    <th className="px-4 py-3">Densities</th>
                                     <th className="px-4 py-3">Score</th>
                                     <th className="px-4 py-3">Signal</th>
                                     <th className="px-4 py-3">VolSpike</th>
@@ -905,6 +940,34 @@ export default function AlertsClient() {
                                         <td className="px-4 py-3">{fmtPct(r.changePercent)}</td>
                                         <td className="px-4 py-3">{fmtPct(r.change24hPercent)}</td>
                                         <td className="px-4 py-3">{fmtCompact(r.quoteVol24h)}</td>
+                                        <td className="px-4 py-3 text-xs">
+                                            {(() => {
+                                                const w = wallsMap[r.symbol];
+                                                const badge = (status: Wall["status"]) => {
+                                                    if (status === "NEW") return "rounded border border-emerald-400/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300";
+                                                    if (status === "EATING") return "rounded border border-amber-400/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300";
+                                                    if (status === "REMOVED") return "rounded border border-red-400/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300";
+                                                    return "rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] text-white/70";
+                                                };
+                                                if (!w?.bid && !w?.ask) return <span className="text-white/50">—</span>;
+                                                return (
+                                                    <div className="space-y-1">
+                                                        {w.bid ? (
+                                                            <div className="flex items-center gap-1">
+                                                                <span>BID {fmtCompact(w.bid.notional)} @ -{w.bid.distancePct.toFixed(2)}%</span>
+                                                                <span className={badge(w.bid.status)}>{w.bid.status}</span>
+                                                            </div>
+                                                        ) : null}
+                                                        {w.ask ? (
+                                                            <div className="flex items-center gap-1">
+                                                                <span>ASK {fmtCompact(w.ask.notional)} @ +{w.ask.distancePct.toFixed(2)}%</span>
+                                                                <span className={badge(w.ask.status)}>{w.ask.status}</span>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </td>
                                         <td className="px-4 py-3">{(r.score ?? 0).toFixed(2)}</td>
                                         <td className="px-4 py-3">{r.signal}</td>
                                         <td className="px-4 py-3">{r.volSpike == null ? "—" : `${r.volSpike.toFixed(2)}x`}</td>
@@ -912,7 +975,7 @@ export default function AlertsClient() {
                                 ))}
                                 {!rows.length && !loading ? (
                                     <tr>
-                                        <td className="p-3 text-sm opacity-70" colSpan={9}>No data</td>
+                                        <td className="p-3 text-sm opacity-70" colSpan={10}>No data</td>
                                     </tr>
                                 ) : null}
                             </tbody>
