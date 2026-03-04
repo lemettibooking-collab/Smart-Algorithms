@@ -24,7 +24,7 @@ export type Candle = {
   takerBuyQuote?: number;
 };
 
-function num(v: any, fallback = 0) {
+function num(v: unknown, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -106,16 +106,17 @@ export function isValidInterval(tf: string) {
 }
 
 function makeHttpError(message: string, status: number) {
-  const err: any = new Error(message);
+  const err = new Error(message) as Error & { status?: number };
   err.status = status;
-  return err as Error & { status?: number };
+  return err;
 }
 
-export async function fetch24hTicker(): Promise<any[]> {
+export async function fetch24hTicker(): Promise<unknown[]> {
   const url = `${BINANCE_BASE}/api/v3/ticker/24hr`;
   const res = await fetchWithRetry(url, { method: "GET", cache: "no-store" }, { retries: 1 });
   if (!res.ok) throw makeHttpError(`ticker failed ${res.status}`, res.status);
-  return await res.json();
+  const json = await res.json();
+  return Array.isArray(json) ? json : [];
 }
 
 export async function fetchKlines(symbol: string, interval: string, limitN: number): Promise<Candle[]> {
@@ -133,27 +134,31 @@ export async function fetchKlines(symbol: string, interval: string, limitN: numb
     throw makeHttpError(`klines failed ${symbol} ${tf} ${res.status}`, res.status);
   }
 
-  const raw = (await res.json()) as any[];
+  const json = await res.json();
+  const raw = Array.isArray(json) ? json : [];
 
   // Binance kline array:
   // [0 openTime, 1 open, 2 high, 3 low, 4 close, 5 volume, 6 closeTime,
   //  7 quoteAssetVolume, 8 trades, 9 takerBuyBase, 10 takerBuyQuote, 11 ignore]
-  return raw.map((r) => ({
-    openTime: num(r[0]),
-    open: num(r[1]),
-    high: num(r[2]),
-    low: num(r[3]),
-    close: num(r[4]),
-    volume: num(r[5]),
-    closeTime: num(r[6]),
+  return raw.map((r) => {
+    const row = Array.isArray(r) ? r : [];
+    return {
+    openTime: num(row[0]),
+    open: num(row[1]),
+    high: num(row[2]),
+    low: num(row[3]),
+    close: num(row[4]),
+    volume: num(row[5]),
+    closeTime: num(row[6]),
 
     // ✅ new
-    quoteVolume: num(r[7]),
+    quoteVolume: num(row[7]),
 
-    trades: Number.isFinite(Number(r[8])) ? Number(r[8]) : undefined,
-    takerBuyBase: Number.isFinite(Number(r[9])) ? Number(r[9]) : undefined,
-    takerBuyQuote: Number.isFinite(Number(r[10])) ? Number(r[10]) : undefined,
-  }));
+    trades: Number.isFinite(Number(row[8])) ? Number(row[8]) : undefined,
+    takerBuyBase: Number.isFinite(Number(row[9])) ? Number(row[9]) : undefined,
+    takerBuyQuote: Number.isFinite(Number(row[10])) ? Number(row[10]) : undefined,
+  };
+  });
 }
 
 function normMs(v: unknown): number {
@@ -279,8 +284,9 @@ export async function fetchPrice(symbol: string): Promise<number> {
   const url = `${BINANCE_BASE}/api/v3/ticker/price?symbol=${encodeURIComponent(symbol)}`;
   const res = await fetchWithRetry(url, { method: "GET", cache: "no-store" }, { retries: 1 });
   if (!res.ok) throw new Error(`price failed ${symbol} ${res.status}`);
-  const j = (await res.json()) as any;
-  return num(j?.price, 0);
+  const j = await res.json();
+  const obj = (typeof j === "object" && j !== null ? j : null) as Record<string, unknown> | null;
+  return num(obj?.price, 0);
 }
 
 export async function fetchPriceCached(symbol: string): Promise<number> {

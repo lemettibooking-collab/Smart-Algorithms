@@ -19,7 +19,7 @@ export type Candle = {
     takerBuyQuote?: number;
 };
 
-function num(v: any, fallback = 0) {
+function num(v: unknown, fallback = 0) {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
 }
@@ -28,13 +28,13 @@ function num(v: any, fallback = 0) {
 const limit = createLimiter(6);
 
 // -------------------- exchangeInfo + symbol normalize --------------------
-const infoCache = new TTLCache<any>(60_000, 4);
-const infoInFlight = new InFlight<any>();
+const infoCache = new TTLCache<unknown>(60_000, 4);
+const infoInFlight = new InFlight<unknown>();
 
 function makeHttpError(message: string, status: number) {
-    const err: any = new Error(message);
+    const err = new Error(message) as Error & { status?: number };
     err.status = status;
-    return err as Error & { status?: number };
+    return err;
 }
 
 export async function fetchExchangeInfoCached() {
@@ -72,13 +72,15 @@ async function getSymbolMetaMap(): Promise<Map<string, { symbol: string; baseAss
 
     const p = limit(async () => {
         const info = await fetchExchangeInfoCached();
-        const symbols: any[] = Array.isArray(info?.symbols) ? info.symbols : [];
+        const infoObj = (typeof info === "object" && info !== null ? info : null) as Record<string, unknown> | null;
+        const symbols = Array.isArray(infoObj?.symbols) ? infoObj.symbols : [];
 
         const m = new Map<string, { symbol: string; baseAsset: string }>();
         for (const s of symbols) {
-            const sym = String(s?.symbol ?? "").toUpperCase();
+            const so = (typeof s === "object" && s !== null ? s : null) as Record<string, unknown> | null;
+            const sym = String(so?.symbol ?? "").toUpperCase();
             if (!sym) continue;
-            const base = String(s?.baseAsset ?? "").toUpperCase();
+            const base = String(so?.baseAsset ?? "").toUpperCase();
             m.set(sym, { symbol: sym, baseAsset: base || sym });
             // иногда в UI/источниках может быть AAA_USDT
             m.set(sym.replace("_", ""), { symbol: sym, baseAsset: base || sym });
@@ -210,11 +212,12 @@ export function isValidInterval(tf: string) {
     return false;
 }
 
-export async function fetch24hTicker(): Promise<any[]> {
+export async function fetch24hTicker(): Promise<unknown[]> {
     const url = `${MEXC_BASE}/api/v3/ticker/24hr`;
     const res = await fetchWithRetry(url, { method: "GET", cache: "no-store" }, { retries: 1 });
     if (!res.ok) throw makeHttpError(`mexc ticker failed ${res.status}`, res.status);
-    return await res.json();
+    const json = await res.json();
+    return Array.isArray(json) ? json : [];
 }
 
 /**
@@ -239,25 +242,26 @@ export async function fetchKlines(symbol: string, interval: string, limitN: numb
     const json = await res.json();
 
     if (Array.isArray(json)) {
-        const raw = json as any[];
+        const raw = json as unknown[];
         return raw.map((r) => ({
-            openTime: num(r[0]),
-            open: num(r[1]),
-            high: num(r[2]),
-            low: num(r[3]),
-            close: num(r[4]),
-            volume: num(r[5]),
-            closeTime: num(r[6]),
-            quoteVolume: num(r[7]),
+            openTime: num(Array.isArray(r) ? r[0] : undefined),
+            open: num(Array.isArray(r) ? r[1] : undefined),
+            high: num(Array.isArray(r) ? r[2] : undefined),
+            low: num(Array.isArray(r) ? r[3] : undefined),
+            close: num(Array.isArray(r) ? r[4] : undefined),
+            volume: num(Array.isArray(r) ? r[5] : undefined),
+            closeTime: num(Array.isArray(r) ? r[6] : undefined),
+            quoteVolume: num(Array.isArray(r) ? r[7] : undefined),
 
-            trades: Number.isFinite(Number(r[8])) ? Number(r[8]) : undefined,
-            takerBuyBase: Number.isFinite(Number(r[9])) ? Number(r[9]) : undefined,
-            takerBuyQuote: Number.isFinite(Number(r[10])) ? Number(r[10]) : undefined,
+            trades: Number.isFinite(Number(Array.isArray(r) ? r[8] : undefined)) ? Number(Array.isArray(r) ? r[8] : undefined) : undefined,
+            takerBuyBase: Number.isFinite(Number(Array.isArray(r) ? r[9] : undefined)) ? Number(Array.isArray(r) ? r[9] : undefined) : undefined,
+            takerBuyQuote: Number.isFinite(Number(Array.isArray(r) ? r[10] : undefined)) ? Number(Array.isArray(r) ? r[10] : undefined) : undefined,
         }));
     }
 
-    const code = (json as any)?.code;
-    const msg = (json as any)?.msg || (json as any)?.message;
+    const obj = (typeof json === "object" && json !== null ? json : null) as Record<string, unknown> | null;
+    const code = obj?.code;
+    const msg = obj?.msg || obj?.message;
     if (code != null || msg) {
         throw new Error(`mexc klines error ${symbol} ${mexcTf}: code=${code ?? "?"} msg=${msg ?? "unknown"}`);
     }
