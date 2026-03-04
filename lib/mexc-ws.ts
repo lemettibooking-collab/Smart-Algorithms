@@ -43,8 +43,9 @@ message PushDataV3ApiWrapper {
 `;
 
 type PriceSnap = { price: number; open24h: number; quoteVol24h: number; ts: number };
+type WsJson = Record<string, unknown>;
 
-function num(v: any, fb = 0) {
+function num(v: unknown, fb = 0) {
     const n = Number(v);
     return Number.isFinite(n) ? n : fb;
 }
@@ -84,7 +85,7 @@ type MexcWsState = {
     noDataTimer: NodeJS.Timeout | null;
 };
 
-const G = globalThis as any;
+const G = globalThis as typeof globalThis & Record<string, unknown>;
 const KEY = "__smartalg_mexc_ws__";
 
 function randId() {
@@ -127,10 +128,17 @@ function ensureProtoReady(s: MexcWsState) {
     s.WrapperType = root.lookupType("PushDataV3ApiWrapper") as protobuf.Type;
 }
 
-function sendJson(s: MexcWsState, obj: any) {
+function sendJson(s: MexcWsState, obj: WsJson) {
     try {
         s.ws?.send(JSON.stringify(obj));
     } catch { }
+}
+
+function rawDataToBuffer(data: WebSocket.RawData): Buffer | null {
+    if (Buffer.isBuffer(data)) return data;
+    if (Array.isArray(data)) return Buffer.concat(data);
+    if (data instanceof ArrayBuffer) return Buffer.from(data);
+    return null;
 }
 
 function rotateEndpoint(s: MexcWsState) {
@@ -188,10 +196,10 @@ function connectOnce() {
                 "User-Agent": "Mozilla/5.0",
             },
         });
-    } catch (e: any) {
+    } catch (e: unknown) {
         s.connecting = false;
         s.connectingSinceTs = 0;
-        s.lastError = `ctor_error:${String(e?.message ?? e)}`;
+        s.lastError = `ctor_error:${e instanceof Error ? e.message : String(e)}`;
         rotateEndpoint(s);
         setTimeout(connectOnce, 1200);
         return;
@@ -261,7 +269,8 @@ function connectOnce() {
         // json ack/pong
         if (typeof data === "string") return;
 
-        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
+        const buf = rawDataToBuffer(data);
+        if (!buf) return;
         // json as buffer
         if (buf.length && (buf[0] === 0x7b || buf[0] === 0x5b)) return;
 
@@ -269,29 +278,31 @@ function connectOnce() {
             if (!ss.WrapperType) ensureProtoReady(ss);
             if (!ss.WrapperType) return;
 
-            const decoded = ss.WrapperType.decode(buf) as any;
+            const decoded = ss.WrapperType.decode(buf) as unknown as Record<string, unknown>;
 
-            const batch = decoded?.publicMiniTickers;
-            if (batch?.items && Array.isArray(batch.items)) {
-                for (const it of batch.items) {
-                    const symbol = String(it?.symbol ?? "").toUpperCase();
+            const batch = decoded.publicMiniTickers as Record<string, unknown> | undefined;
+            const batchItems = batch?.items;
+            if (Array.isArray(batchItems)) {
+                for (const it of batchItems) {
+                    const item = it && typeof it === "object" ? (it as Record<string, unknown>) : null;
+                    const symbol = String(item?.symbol ?? "").toUpperCase();
                     if (!symbol) continue;
 
-                    const price = num(it?.price, 0);
-                    const quoteVol = num(it?.volume, 0);
-                    const ratePct = num(it?.rate, 0);
+                    const price = num(item?.price, 0);
+                    const quoteVol = num(item?.volume, 0);
+                    const ratePct = num(item?.rate, 0);
 
                     const open24h = deriveOpenFromRatePercent(price, ratePct);
                     ss.priceMap.set(symbol, { price, open24h, quoteVol24h: quoteVol, ts: now });
                 }
             }
 
-            const one = decoded?.publicMiniTicker;
+            const one = decoded.publicMiniTicker as Record<string, unknown> | undefined;
             if (one?.symbol) {
                 const symbol = String(one.symbol).toUpperCase();
-                const price = num(one?.price, 0);
-                const quoteVol = num(one?.volume, 0);
-                const ratePct = num(one?.rate, 0);
+                const price = num(one.price, 0);
+                const quoteVol = num(one.volume, 0);
+                const ratePct = num(one.rate, 0);
                 const open24h = deriveOpenFromRatePercent(price, ratePct);
                 ss.priceMap.set(symbol, { price, open24h, quoteVol24h: quoteVol, ts: now });
             }
@@ -319,7 +330,8 @@ function connectOnce() {
 
     ws.on("error", (err) => {
         const ss = st();
-        ss.lastError = `error:${String((err as any)?.message ?? err ?? "ws_error")}`;
+        const message = err instanceof Error ? err.message : String(err ?? "ws_error");
+        ss.lastError = `error:${message}`;
         ss.connecting = false;
         ss.connectingSinceTs = 0;
 
@@ -333,7 +345,7 @@ function connectOnce() {
         setTimeout(connectOnce, 1200);
     });
 
-    ws.on("unexpected-response" as any, () => {
+    ws.on("unexpected-response", () => {
         const ss = st();
         ss.lastError = "unexpected_response";
         ss.connecting = false;

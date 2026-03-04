@@ -37,9 +37,9 @@ export async function GET(req: Request) {
   try {
     const candles = await api.fetchKlinesCached(symbol, interval, limit);
     return NextResponse.json({ ok: true, exchange, symbol, interval, limit, candles });
-  } catch (e: any) {
+  } catch (e: unknown) {
     // ✅ мягко: не валим UI и не спамим 500 на "symbol not found"
-    const msg = String(e?.message ?? e);
+    const msg = e instanceof Error ? e.message : String(e);
 
     // Частый кейс: 400/404 от биржи => отдаём пусто
     if (msg.includes(" 400") || msg.includes(" 404") || msg.toLowerCase().includes("invalid symbol")) {

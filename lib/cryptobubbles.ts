@@ -7,24 +7,25 @@ import { TTLCache, InFlight } from "@/lib/server-cache";
  */
 const CB_URL = "https://cryptobubbles.net/backend/data/bubbles1000.usd.json";
 
-type AnyObj = Record<string, any>;
+type AnyObj = Record<string, unknown>;
 
 const cache = new TTLCache<Map<string, number>>(10 * 60_000, 2); // 10 минут
 const inflight = new InFlight<Map<string, number>>();
 
-function pickMcap(x: any): number | null {
+function pickMcap(x: unknown): number | null {
+    const o = x && typeof x === "object" ? (x as AnyObj) : null;
     const v = Number(
-        x?.marketCap ??
-        x?.market_cap ??
-        x?.mcap ??
-        x?.marketcap ??
-        x?.cap ??
-        x?.market_cap_usd
+        o?.marketCap ??
+        o?.market_cap ??
+        o?.mcap ??
+        o?.marketcap ??
+        o?.cap ??
+        o?.market_cap_usd
     );
     return Number.isFinite(v) && v > 0 ? v : null;
 }
 
-function extractArray(json: any): any[] {
+function extractArray(json: unknown): unknown[] {
     if (Array.isArray(json)) return json;
 
     // иногда кладут массив в поле
@@ -60,7 +61,7 @@ export async function getMarketCapsCached(): Promise<Map<string, number>> {
 
         // иногда лучше парсить через text -> JSON
         const txt = await res.text();
-        let json: any;
+        let json: unknown;
         try {
             json = JSON.parse(txt);
         } catch {
@@ -71,8 +72,9 @@ export async function getMarketCapsCached(): Promise<Map<string, number>> {
         const map = new Map<string, number>();
 
         for (const c of arr) {
-            const sym = String(c?.symbol ?? c?.sym ?? "").toUpperCase().trim();
-            const mcap = pickMcap(c);
+            const o = c && typeof c === "object" ? (c as AnyObj) : null;
+            const sym = String(o?.symbol ?? o?.sym ?? "").toUpperCase().trim();
+            const mcap = pickMcap(o);
             if (!sym || !mcap) continue;
             map.set(sym, mcap);
         }

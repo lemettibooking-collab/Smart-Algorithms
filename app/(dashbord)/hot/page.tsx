@@ -9,6 +9,13 @@ type HotResponse = {
   ts: number;
 };
 
+type HotTf = "24h" | "1m" | "5m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1M" | "1y";
+
+function toHotTf(tf: string): HotTf {
+  const allowed: HotTf[] = ["24h", "1m", "5m", "15m", "1h", "4h", "1d", "1w", "1M", "1y"];
+  return allowed.includes(tf as HotTf) ? (tf as HotTf) : "24h";
+}
+
 async function getBaseUrl() {
   const h = await headers(); // ✅ важно: await
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
@@ -32,11 +39,12 @@ function pickTf(searchParams?: Record<string, string | string[] | undefined>) {
 export default async function HotPage({
   searchParams,
 }: {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   let initialRows: HotSymbol[] = [];
 
-  const tf = pickTf(searchParams);
+  const sp = (await searchParams) ?? {};
+  const tf = pickTf(sp);
 
   try {
     const baseUrl = await getBaseUrl();
@@ -52,8 +60,9 @@ export default async function HotPage({
     } else {
       console.log("[hot/page] initial fetch not ok:", res.status);
     }
-  } catch (e: any) {
-    console.log("[hot/page] initial fetch failed:", String(e?.message ?? e));
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log("[hot/page] initial fetch failed:", msg);
   }
 
   return (
@@ -63,7 +72,7 @@ export default async function HotPage({
         Scanner feed (computed by selected period). Change “Period” to recalc.
       </p>
 
-      <HotClient initialRows={initialRows} initialTf={tf as any} />
+      <HotClient initialRows={initialRows} initialTf={toHotTf(tf)} />
     </main>
   );
 }

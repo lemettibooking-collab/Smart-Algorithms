@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { EventsFeed, useEventsFeed } from "@/src/widgets/events-feed";
 
 type Exchange = "binance" | "mexc";
 
@@ -33,13 +34,6 @@ type AlertRow = {
     mergedFrom?: Array<{ exchange: Exchange; symbol: string; score: number }>;
 };
 
-type EventRow = AlertRow & {
-    eventId?: string;
-    eventType: "signal_change" | "score_jump";
-    prevSignal?: string | null;
-    prevScore?: number | null;
-};
-
 type Wall = {
     price: number;
     notional: number;
@@ -56,14 +50,6 @@ type AlertsResponse = {
     tf: string;
     ts: number;
     data: AlertRow[];
-    sources?: unknown;
-    error?: string;
-};
-
-type EventsResponse = {
-    tf: string;
-    ts: number;
-    data: EventRow[];
     sources?: unknown;
     error?: string;
 };
@@ -98,8 +84,6 @@ type AlertsPreset = {
 
 const PRESET_ID_KEY = "alerts:presetId";
 const FILTERS_KEY = "alerts:filters";
-const LS_EVENTS_KEY = "alerts:eventsCache:v1";
-const LS_EVENTS_META_KEY = "alerts:eventsCacheMeta:v1";
 const DEFAULT_PRESET_ID: AlertsPresetId = "balanced";
 
 const ALERTS_PRESETS: AlertsPreset[] = [
@@ -185,26 +169,6 @@ function asRecord(v: unknown): Record<string, unknown> | null {
     return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
 }
 
-function eventsStorageKeys(tf: string) {
-    return {
-        eventsKey: `${LS_EVENTS_KEY}:${tf}`,
-        metaKey: `${LS_EVENTS_META_KEY}:${tf}`,
-    };
-}
-
-function isValidEventRow(v: unknown): v is EventRow {
-    const o = asRecord(v);
-    if (!o) return false;
-    const hasEventId = typeof o.eventId === "string" && o.eventId.length > 0;
-    const hasTs = typeof o.ts === "number" && Number.isFinite(o.ts);
-    const hasSymbol = typeof o.symbol === "string" && o.symbol.length > 0;
-    return hasEventId || (hasTs && hasSymbol);
-}
-
-function eventStableKey(ev: EventRow): string {
-    return ev.eventId ?? `${ev.tf}:${ev.baseAsset ?? ev.symbol}:${ev.ts}:${ev.eventType ?? ev.signal ?? ""}:${Math.round((ev.score ?? 0) * 100)}`;
-}
-
 function fmtPct(x: number) {
     const n = Number(x ?? 0) || 0;
     const s = n >= 0 ? "+" : "";
@@ -274,11 +238,23 @@ export default function AlertsClient() {
 
     const [loading, setLoading] = useState(false);
     const [rows, setRows] = useState<AlertRow[]>([]);
-    const [events, setEvents] = useState<EventRow[]>([]);
     const [wallsMap, setWallsMap] = useState<Record<string, { bid?: Wall; ask?: Wall }>>({});
     const [sources, setSources] = useState<unknown>(null);
     const [err, setErr] = useState<string | null>(null);
-    const eventsRef = useRef<EventRow[]>([]);
+    const eventsFeed = useEventsFeed({
+        enabled: mode === "events",
+        auto,
+        tf,
+        includeCalm,
+        onlyStrong,
+        strongScore,
+        minScore,
+        sortBy,
+        signalFilter,
+        eventsLimit,
+        scoreJump,
+        cooldownSec,
+    });
 
     function applyFiltersState(values: Partial<FiltersState>) {
         if (typeof values.tf === "string") setTf(values.tf);
@@ -321,24 +297,6 @@ export default function AlertsClient() {
         return `/api/alerts?${p.toString()}`;
     }, [tf, includeCalm, onlyStrong, strongScore, minScore, limit, dedupe, sortBy, signalFilter]);
 
-    const eventsQuery = useMemo(() => {
-        const p = new URLSearchParams();
-        p.set("tf", tf);
-        p.set("includeCalm", includeCalm ? "1" : "0");
-        p.set("minScore", String(onlyStrong ? strongScore : minScore));
-        // events сами дедупят, но фильтры важны
-        p.set("sort", sortBy);
-        if (signalFilter.length) p.set("signals", signalFilter.join(","));
-
-        p.set("limit", String(eventsLimit));
-        p.set("scoreJump", String(scoreJump));
-        p.set("cooldownSec", String(cooldownSec));
-        // baseLimit можно поднять, чтобы не пропускать
-        p.set("baseLimit", "220");
-
-        return `/api/alerts/events?${p.toString()}`;
-    }, [tf, includeCalm, onlyStrong, strongScore, minScore, sortBy, signalFilter, eventsLimit, scoreJump, cooldownSec]);
-
     async function loadTable() {
         setLoading(true);
         setErr(null);
@@ -378,67 +336,13 @@ export default function AlertsClient() {
         }
     }
 
-    async function loadEvents() {
-        setLoading(true);
-        setErr(null);
-        try {
-            const r = await fetch(eventsQuery, { cache: "no-store" });
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const j: EventsResponse = await r.json();
-            if (j.error) setErr(j.error);
-            setSources(j.sources ?? null);
-
-            const incoming = Array.isArray(j.data) ? j.data : [];
-
-            // Server data is source of truth; local cache is only UX bootstrap.
-            setEvents((prev) => {
-                const byKey = new Map<string, EventRow>();
-                const out: EventRow[] = [];
-                for (const ev of incoming) {
-                    if (!isValidEventRow(ev)) continue;
-                    const k = eventStableKey(ev);
-                    if (byKey.has(k)) continue;
-                    byKey.set(k, ev);
-                    out.push(ev);
-                }
-                for (const ev of prev) {
-                    const k = eventStableKey(ev);
-                    if (byKey.has(k)) continue;
-                    byKey.set(k, ev);
-                    out.push(ev);
-                }
-                const trimmed = out.slice(0, eventsLimit);
-
-                if (typeof window !== "undefined") {
-                    try {
-                        const { eventsKey, metaKey } = eventsStorageKeys(tf);
-                        window.localStorage.setItem(eventsKey, JSON.stringify(trimmed));
-                        window.localStorage.setItem(metaKey, JSON.stringify({ tf, updatedAt: Date.now() }));
-                    } catch { }
-                }
-
-                return trimmed;
-            });
-        } catch (e: unknown) {
-            setErr(errMsg(e));
-            setSources(null);
-        } finally {
-            setLoading(false);
-        }
-    }
-
     function refresh() {
-        if (mode === "events") return loadEvents();
+        if (mode === "events") return eventsFeed.refresh();
         return loadTable();
     }
 
     function clearEvents() {
-        setEvents([]);
-        if (typeof window !== "undefined") {
-            const { eventsKey, metaKey } = eventsStorageKeys(tf);
-            window.localStorage.removeItem(eventsKey);
-            window.localStorage.removeItem(metaKey);
-        }
+        eventsFeed.clearEvents();
     }
 
     useEffect(() => {
@@ -523,52 +427,23 @@ export default function AlertsClient() {
 
     useEffect(() => {
         // при смене режима — делаем первичную загрузку
-        if (mode === "events") {
-            if (typeof window !== "undefined") {
-                const { eventsKey, metaKey } = eventsStorageKeys(tf);
-                const raw = window.localStorage.getItem(eventsKey);
-                if (raw) {
-                    try {
-                        const parsed = JSON.parse(raw) as unknown;
-                        if (Array.isArray(parsed)) {
-                            const valid = parsed.filter(isValidEventRow).slice(0, eventsLimit);
-                            if (valid.length > 0) {
-                                setEvents(valid);
-                            } else {
-                                window.localStorage.removeItem(eventsKey);
-                                window.localStorage.removeItem(metaKey);
-                            }
-                        } else {
-                            window.localStorage.removeItem(eventsKey);
-                            window.localStorage.removeItem(metaKey);
-                        }
-                    } catch {
-                        window.localStorage.removeItem(eventsKey);
-                        window.localStorage.removeItem(metaKey);
-                    }
-                }
-            }
-            loadEvents();
-        }
-        else loadTable();
+        if (mode === "table") loadTable();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mode, tf, eventsLimit, tableQuery, eventsQuery]);
+    }, [mode, tableQuery]);
 
     useEffect(() => {
-        if (!auto) return;
+        if (!auto || mode !== "table") return;
         const id = setInterval(() => refresh(), 5000);
         return () => clearInterval(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [auto, mode, tableQuery, eventsQuery]);
-
-    useEffect(() => {
-        eventsRef.current = events;
-    }, [events]);
+    }, [auto, mode, tableQuery]);
 
     const kpi = useMemo(() => {
-        const total = mode === "events" ? events.length : rows.length;
-        const nonCalm = (mode === "events" ? events : rows).filter((r) => String(r.signal).toLowerCase() !== "calm").length;
-        const src = (typeof sources === "object" && sources !== null ? sources : null) as Record<string, unknown> | null;
+        const eventRows = eventsFeed.events;
+        const sourceForMode = mode === "events" ? eventsFeed.sources : sources;
+        const total = mode === "events" ? eventRows.length : rows.length;
+        const nonCalm = (mode === "events" ? eventRows : rows).filter((r) => String(r.signal).toLowerCase() !== "calm").length;
+        const src = (typeof sourceForMode === "object" && sourceForMode !== null ? sourceForMode : null) as Record<string, unknown> | null;
         const b = (typeof src?.binance === "object" && src?.binance !== null ? src.binance : null) as Record<string, unknown> | null;
         const m = (typeof src?.mexc === "object" && src?.mexc !== null ? src.mexc : null) as Record<string, unknown> | null;
         const degradedAny = !!(b?.degraded || m?.degraded);
@@ -577,7 +452,10 @@ export default function AlertsClient() {
         const wsM = m?.ws;
 
         return { total, nonCalm, degradedAny, wsB, wsM };
-    }, [mode, events, rows, sources]);
+    }, [mode, eventsFeed.events, eventsFeed.sources, rows, sources]);
+
+    const displayErr = mode === "events" ? eventsFeed.err : err;
+    const displayLoading = mode === "events" ? eventsFeed.loading : loading;
 
     return (
         <div className="space-y-3 text-sm text-white/80">
@@ -764,9 +642,9 @@ export default function AlertsClient() {
                 <button
                     className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/80 placeholder:text-white/40 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
                     onClick={refresh}
-                    disabled={loading}
+                    disabled={displayLoading}
                 >
-                    {loading ? "Loading..." : "Refresh"}
+                    {displayLoading ? "Loading..." : "Refresh"}
                 </button>
                 {mode === "table" ? (
                     <button
@@ -782,7 +660,7 @@ export default function AlertsClient() {
                     </button>
                 ) : null}
 
-                {err ? <span className="text-sm text-red-400">{err}</span> : null}
+                {displayErr ? <span className="text-sm text-red-400">{displayErr}</span> : null}
 
                 {/* Signal filter buttons */}
                 <div className="flex flex-wrap items-center gap-2">
@@ -844,59 +722,7 @@ export default function AlertsClient() {
 
             {/* Body */}
             {mode === "events" ? (
-                <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur-md shadow-sm">
-                    <div className="max-h-[70vh] overflow-auto">
-                        <table className="w-full text-sm text-white/80">
-                            <thead className="sticky top-0 bg-white/5 text-sm font-medium text-white/80">
-                                <tr className="text-left">
-                                    <th className="px-4 py-3">Type</th>
-                                    <th className="px-4 py-3">Asset</th>
-                                    <th className="px-4 py-3">Exch</th>
-                                    <th className="px-4 py-3">Score</th>
-                                    <th className="px-4 py-3">Signal</th>
-                                    <th className="px-4 py-3">Δ(tf)</th>
-                                    <th className="px-4 py-3">24h%</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-sm text-white/80 leading-5">
-                                {events.map((r, idx) => (
-                                    <tr key={r.eventId ?? `${idx}:${r.ts}:${r.baseAsset}`} className="border-t border-white/5 hover:bg-white/5">
-                                        <td className="px-4 py-3 text-xs text-white/50">
-                                            {r.eventType === "signal_change" ? "Signal" : "Score"}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <div className="flex items-center gap-2">
-                                                {(r.logoUrl || r.iconUrl) ? (
-                                                    // eslint-disable-next-line @next/next/no-img-element
-                                                    <img
-                                                        src={(r.logoUrl || r.iconUrl) as string}
-                                                        alt={r.baseAsset}
-                                                        className="h-5 w-5 rounded-full"
-                                                        loading="lazy"
-                                                    />
-                                                ) : (
-                                                    <div className="h-5 w-5 rounded-full border border-white/10" />
-                                                )}
-                                                <div className="font-medium">{r.baseAsset}</div>
-                                                <div className="text-xs text-white/50">{r.symbol}</div>
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-3">{r.exchange}</td>
-                                        <td className="px-4 py-3">{r.score.toFixed(2)}</td>
-                                        <td className="px-4 py-3">{r.signal}</td>
-                                        <td className="px-4 py-3">{fmtPct(r.changePercent)}</td>
-                                        <td className="px-4 py-3">{fmtPct(r.change24hPercent)}</td>
-                                    </tr>
-                                ))}
-                                {!events.length && !loading ? (
-                                    <tr>
-                                        <td className="p-3 text-sm opacity-70" colSpan={7}>No events yet</td>
-                                    </tr>
-                                ) : null}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                <EventsFeed events={eventsFeed.events} loading={displayLoading} />
             ) : (
                 <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur-md shadow-sm">
                     <div className="max-h-[70vh] overflow-auto">

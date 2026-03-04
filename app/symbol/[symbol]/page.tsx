@@ -4,11 +4,11 @@ import { calcMetrics, type SymbolMetrics } from "@/lib/metrics";
 import SymbolClient from "@/components/symbol-client";
 
 type PageProps = {
-  params: { symbol: string };
+  params: Promise<{ symbol: string }>;
 };
 
 export default async function SymbolPage({ params }: PageProps) {
-  const raw = params.symbol;
+  const { symbol: raw } = await params;
   const symbol = normalizeSymbol(raw);
 
   const interval = "1h" as const;
@@ -24,8 +24,8 @@ export default async function SymbolPage({ params }: PageProps) {
   };
 
   if (isValidSymbol(symbol)) {
-    initialCandles = await fetchKlines(symbol, interval as any, limit);
-    initialMetrics = calcMetrics(initialCandles, interval as any);
+    initialCandles = await fetchKlines(symbol, interval, limit);
+    initialMetrics = calcMetrics(initialCandles);
   }
 
   return (

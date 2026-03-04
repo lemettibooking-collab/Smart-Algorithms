@@ -86,7 +86,7 @@ function parseCompactUsd(input: string): number | null {
     return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function extractNextDataJson(html: string): any | null {
+function extractNextDataJson(html: string): unknown {
     const m = html.match(/<script[^>]+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
     if (!m?.[1]) return null;
     try {
@@ -119,8 +119,8 @@ function extractMarketCapFromHtml(html: string): { raw: string | number | null; 
     // C) __NEXT_DATA__ deep scan
     const next = extractNextDataJson(text);
     if (next) {
-        const seen = new Set<any>();
-        const walk = (v: any): string | number | null => {
+        const seen = new Set<unknown>();
+        const walk = (v: unknown): string | number | null => {
             if (v == null) return null;
             if (typeof v !== "object") return null;
             if (seen.has(v)) return null;
