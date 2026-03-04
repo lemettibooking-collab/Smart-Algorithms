@@ -32,11 +32,12 @@ function pickTf(searchParams?: Record<string, string | string[] | undefined>) {
 export default async function HotPage({
   searchParams,
 }: {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   let initialRows: HotSymbol[] = [];
 
-  const tf = pickTf(searchParams);
+  const sp = (await searchParams) ?? {};
+  const tf = pickTf(sp);
 
   try {
     const baseUrl = await getBaseUrl();

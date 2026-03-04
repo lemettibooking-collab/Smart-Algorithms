@@ -4,11 +4,11 @@ import { calcMetrics, type SymbolMetrics } from "@/lib/metrics";
 import SymbolClient from "@/components/symbol-client";
 
 type PageProps = {
-  params: { symbol: string };
+  params: Promise<{ symbol: string }>;
 };
 
 export default async function SymbolPage({ params }: PageProps) {
-  const raw = params.symbol;
+  const { symbol: raw } = await params;
   const symbol = normalizeSymbol(raw);
 
   const interval = "1h" as const;
