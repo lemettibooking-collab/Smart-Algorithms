@@ -23,6 +23,7 @@ import { ensureMexcWsStarted, getMexcWsPriceSnap, getMexcWsHealth } from "@/lib/
 export const runtime = "nodejs";
 
 type Exchange = "binance" | "mexc";
+type SpikeMode = "pulse" | "scalp";
 type AnyCandle = BinanceCandle | mexc.Candle;
 
 type HotRow = {
@@ -79,6 +80,11 @@ function getTf(sp: URLSearchParams, fallback = "15m") {
 function getExchange(sp: URLSearchParams): Exchange {
   const ex = (sp.get("exchange") || "binance").trim().toLowerCase();
   return ex === "mexc" ? "mexc" : "binance";
+}
+
+function getSpikeMode(sp: URLSearchParams): SpikeMode {
+  const v = (sp.get("spikeMode") || "pulse").trim().toLowerCase();
+  return v === "scalp" ? "scalp" : "pulse";
 }
 
 function makeKey(prefix: string, obj: Record<string, any>) {
@@ -300,6 +306,10 @@ function candleQuoteVolumeOrEstimate(c: any): number {
   return 0;
 }
 
+function spikeWindowByMode(mode: SpikeMode): number {
+  return mode === "scalp" ? 5 : 20;
+}
+
 function lastClosedIndex(candles: AnyCandle[]) {
   if (!candles || candles.length < 1) return -1;
   const now = Date.now();
@@ -332,42 +342,51 @@ function computeTfChangeFromCandles(candles: AnyCandle[], currentPrice: number):
   return ((price - base) / base) * 100;
 }
 
-function computeCandleVolSpikeFromCandles(candles: AnyCandle[]) {
-  if (!candles || candles.length < 22) return 0;
+function computeCandleVolSpikeFromCandles(candles: AnyCandle[], spikeMode: SpikeMode): number | null {
+  const window = spikeWindowByMode(spikeMode);
+  if (!candles || candles.length < window + 2) return null;
 
-  const idxLast = lastClosedIndex(candles);
-  if (idxLast < 21) return 0;
-
-  const startPrev = idxLast - 20;
-
+  const idxSpike = candles.length - 1;
+  if (idxSpike < window) return null;
+  const startPrev = idxSpike - window;
   const qvAt = (c: any) => candleQuoteVolumeOrEstimate(c);
 
-  const lastQv = qvAt((candles as any)[idxLast]);
-  if (!(lastQv > 0)) return 0;
+  const lastQv = qvAt((candles as any)[idxSpike]);
+  if (!Number.isFinite(lastQv) || lastQv <= 0) return null;
 
-  const prevArr = (candles as any).slice(startPrev, idxLast).map(qvAt);
-  const sma = prevArr.reduce((a: number, v: number) => a + v, 0) / prevArr.length;
-  if (!(sma > 0)) return 0;
+  const prevArr = (candles as any).slice(startPrev, idxSpike).map(qvAt);
+  if (prevArr.length < window) return null;
+  const baseline =
+    spikeMode === "scalp"
+      ? median(prevArr)
+      : prevArr.reduce((a: number, v: number) => a + v, 0) / prevArr.length;
+  if (!Number.isFinite(baseline) || baseline <= 0) return null;
 
-  return lastQv / sma;
+  const spike = lastQv / baseline;
+  if (!Number.isFinite(spike) || spike <= 0) return null;
+  return spike;
 }
 
-function applyIlliquidVolSpikeFilter(volSpike: number | null, candles: AnyCandle[], minSmaQuote: number) {
+function applyIlliquidVolSpikeFilter(volSpike: number | null, candles: AnyCandle[], minSmaQuote: number, spikeMode: SpikeMode) {
   if (volSpike == null) return null;
-  if (!candles || candles.length < 22) return volSpike;
+  const window = spikeWindowByMode(spikeMode);
+  if (!candles || candles.length < window + 2) return null;
 
-  const idxLast = lastClosedIndex(candles);
-  if (idxLast < 21) return volSpike;
-
-  const startPrev = idxLast - 20;
+  const idxSpike = candles.length - 1;
+  if (idxSpike < window) return null;
+  const startPrev = idxSpike - window;
 
   const qvAt = (c: any) => candleQuoteVolumeOrEstimate(c);
 
-  const prevArr = (candles as any).slice(startPrev, idxLast).map(qvAt);
-  const sma = prevArr.reduce((a: number, v: number) => a + v, 0) / prevArr.length;
+  const prevArr = (candles as any).slice(startPrev, idxSpike).map(qvAt);
+  if (prevArr.length < window) return null;
+  const baseline =
+    spikeMode === "scalp"
+      ? median(prevArr)
+      : prevArr.reduce((a: number, v: number) => a + v, 0) / prevArr.length;
 
-  if (!Number.isFinite(sma) || sma <= 0) return volSpike;
-  if (sma < minSmaQuote) return null;
+  if (!Number.isFinite(baseline) || baseline <= 0) return null;
+  if (baseline < minSmaQuote) return null;
 
   return volSpike;
 }
@@ -458,6 +477,8 @@ export async function GET(req: Request) {
   if (exchange === "mexc") ensureMexcWsStarted();
 
   const tf = getTf(sp, "15m").trim();
+  const spikeMode = getSpikeMode(sp);
+  const spikeWindow = spikeWindowByMode(spikeMode);
   const limitN = clamp(qNum(sp, "limit", 120), 1, 300);
 
   const klineCandidatesDefault = exchange === "mexc" ? 120 : limitN;
@@ -487,6 +508,7 @@ export async function GET(req: Request) {
     includeStables,
     candleSpike,
     candleSpikeLimit,
+    spikeMode,
     spikeIlliquidFilter,
     spikeMinSmaQuote,
   });
@@ -588,7 +610,7 @@ export async function GET(req: Request) {
       // 2) считаем candle volSpike по 1h свечам только для top N по объёму (чтобы не долбить лимиты)
       const TOP_SPIKE_N = 60;
       const spikeInterval = "1h";
-      const spikeKlinesLimit = 22; // достаточно для SMA20 + last
+      const spikeKlinesLimit = Math.max(candleSpikeLimit + 1, spikeWindow + 2, 30);
 
       const topForSpike = [...candidates]
         .slice()
@@ -603,14 +625,12 @@ export async function GET(req: Request) {
         const sym = String((t as any).symbol);
         try {
           const candles = (await fetchKlinesCached(sym, spikeInterval, spikeKlinesLimit)) as AnyCandle[];
-          let spike = computeCandleVolSpikeFromCandles(candles);
-
-          let volSpike: number | null =
-            Number.isFinite(spike) && spike > 0 ? spike : 0;
+          const spike = computeCandleVolSpikeFromCandles(candles, spikeMode);
+          let volSpike: number | null = spike;
 
           // применяем фильтр "illiquid spike" (тот же, что в klines-mode)
           if (spikeIlliquidFilter) {
-            volSpike = applyIlliquidVolSpikeFilter(volSpike, candles, spikeMinSmaQuote);
+            volSpike = applyIlliquidVolSpikeFilter(volSpike, candles, spikeMinSmaQuote, spikeMode);
           }
 
           if (volSpike != null) volSpike = clamp(volSpike, 0, 99);
@@ -685,6 +705,8 @@ export async function GET(req: Request) {
           rejected: 0,
           spikeKlines: spikeBySymbol.size,
           spikeInterval,
+          spikeMode,
+          spikeWindow,
         },
       };
 
@@ -711,7 +733,7 @@ export async function GET(req: Request) {
       const wsOk = snap.wsOk;
 
       try {
-        const limit = candleSpike ? candleSpikeLimit + 1 : 2;
+        const limit = candleSpike ? Math.max(candleSpikeLimit + 1, spikeWindow + 2, 30) : 2;
         const candles = (await fetchKlinesCached(symbol, tf, limit)) as AnyCandle[];
 
         const change24hPercent = compute24hPercent(openPrice24h, currentPriceWs);
@@ -748,11 +770,11 @@ export async function GET(req: Request) {
 
         let volSpike: number | null = null;
         if (candleSpike) {
-          const spikeRaw = computeCandleVolSpikeFromCandles(candles);
-          volSpike = Number.isFinite(spikeRaw) && spikeRaw > 0 ? spikeRaw : 0;
+          const spikeRaw = computeCandleVolSpikeFromCandles(candles, spikeMode);
+          volSpike = spikeRaw;
 
           if (spikeIlliquidFilter) {
-            volSpike = applyIlliquidVolSpikeFilter(volSpike, candles, spikeMinSmaQuote);
+            volSpike = applyIlliquidVolSpikeFilter(volSpike, candles, spikeMinSmaQuote, spikeMode);
           }
         } else {
           volSpike = null;
@@ -861,6 +883,8 @@ export async function GET(req: Request) {
         tickerFallback: computedTickerFallback,
         wsUsed,
         rejected: rejects,
+        spikeMode,
+        spikeWindow,
       },
     };
 
