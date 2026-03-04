@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Exchange = "binance" | "mexc";
+type KlineLike = { close?: unknown };
 
 function clamp(n: number, lo: number, hi: number) {
     return Math.max(lo, Math.min(hi, n));
@@ -61,14 +62,15 @@ export default function Sparkline({
                 }
 
                 const arr = candles
-                    .map((c: any) => Number(c?.close))
+                    .map((c: unknown) => Number((c as KlineLike)?.close))
                     .filter((x: number) => Number.isFinite(x));
 
                 setCloses(arr.length >= 2 ? arr : null);
-            } catch (e: any) {
-                if (e?.name === "AbortError") return;
+            } catch (e: unknown) {
+                if (e instanceof Error && e.name === "AbortError") return;
                 if (!mounted) return;
-                console.debug("[sparkline] fail", { exchange, symbol, interval, err: String(e?.message ?? e) });
+                const msg = e instanceof Error ? e.message : String(e);
+                console.debug("[sparkline] fail", { exchange, symbol, interval, err: msg });
                 setOk(false);
                 setCloses(null);
             }

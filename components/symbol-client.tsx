@@ -30,13 +30,9 @@ type ApiOk = {
   ts: number;
 };
 
-type ApiErr = {
-  ok: false;
-  error: string;
-  ts: number;
-};
-
-type ApiResp = ApiOk | ApiErr;
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+}
 
 export default function SymbolClient(props: {
   symbol: string;
@@ -50,7 +46,7 @@ export default function SymbolClient(props: {
 
   const [candles, setCandles] = useState<Candle[]>(initialCandles ?? []);
   const [metrics, setMetrics] = useState<SymbolMetrics>(initialMetrics);
-  const [periods, setPeriods] = useState<Periods | null>(null);
+  const [, setPeriods] = useState<Periods | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -68,11 +64,12 @@ export default function SymbolClient(props: {
     setErr(null);
     try {
       const r = await fetch(apiUrl, { cache: "no-store" });
-      const j = (await r.json()) as any;
+      const j = (await r.json()) as unknown;
+      const rec = asRecord(j);
 
       // У тебя /api/klines может возвращать просто candles, без ок:true — поэтому максимально терпимо
       // 1) если форма { ok: true, candles, metrics, ... }
-      if (j && j.ok === true) {
+      if (rec?.ok === true) {
         const resp = j as ApiOk;
         setCandles(Array.isArray(resp.candles) ? resp.candles : []);
         setMetrics(resp.metrics ?? metrics);
@@ -81,8 +78,8 @@ export default function SymbolClient(props: {
       }
 
       // 2) если форма { candles: [...] }
-      if (j && Array.isArray(j.candles)) {
-        setCandles(j.candles);
+      if (rec && Array.isArray(rec.candles)) {
+        setCandles(rec.candles as Candle[]);
         return;
       }
 
@@ -93,10 +90,10 @@ export default function SymbolClient(props: {
       }
 
       // 4) иначе ошибка
-      const msg = String(j?.error ?? `Bad response (${r.status})`);
+      const msg = String(rec?.error ?? `Bad response (${r.status})`);
       setErr(msg);
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed");
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Failed");
     } finally {
       setLoading(false);
     }

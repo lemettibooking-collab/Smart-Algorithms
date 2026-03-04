@@ -37,6 +37,7 @@ export type HotSymbol = {
   marketCapRaw?: number | null;
 
   logoUrl?: string | null;
+  iconUrl?: string | null;
 };
 
 type HotResponse = {

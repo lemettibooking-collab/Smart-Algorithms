@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Exchange = "binance" | "mexc";
 
@@ -275,10 +275,13 @@ export default function AlertsClient() {
     const [loading, setLoading] = useState(false);
     const [rows, setRows] = useState<AlertRow[]>([]);
     const [events, setEvents] = useState<EventRow[]>([]);
+    const [eventsStreamLive, setEventsStreamLive] = useState(false);
     const [wallsMap, setWallsMap] = useState<Record<string, { bid?: Wall; ask?: Wall }>>({});
     const [sources, setSources] = useState<unknown>(null);
     const [err, setErr] = useState<string | null>(null);
     const eventsRef = useRef<EventRow[]>([]);
+    const seenEventKeysRef = useRef<Set<string>>(new Set());
+    const seenEventOrderRef = useRef<string[]>([]);
 
     function applyFiltersState(values: Partial<FiltersState>) {
         if (typeof values.tf === "string") setTf(values.tf);
@@ -339,6 +342,63 @@ export default function AlertsClient() {
         return `/api/alerts/events?${p.toString()}`;
     }, [tf, includeCalm, onlyStrong, strongScore, minScore, sortBy, signalFilter, eventsLimit, scoreJump, cooldownSec]);
 
+    const eventsStreamBaseQuery = useMemo(() => {
+        const p = new URLSearchParams();
+        p.set("tf", tf);
+        p.set("includeCalm", includeCalm ? "1" : "0");
+        p.set("minScore", String(onlyStrong ? strongScore : minScore));
+        if (signalFilter.length) p.set("signals", signalFilter.join(","));
+        p.set("limit", String(eventsLimit));
+        p.set("pollMs", "2000");
+        return p;
+    }, [tf, includeCalm, onlyStrong, strongScore, minScore, signalFilter, eventsLimit]);
+
+    const rememberEventKeys = useCallback((rows: EventRow[]) => {
+        const nextSet = new Set<string>();
+        const nextOrder: string[] = [];
+        for (const ev of rows) {
+            const k = eventStableKey(ev);
+            if (nextSet.has(k)) continue;
+            nextSet.add(k);
+            nextOrder.push(k);
+            if (nextOrder.length >= 500) break;
+        }
+        seenEventKeysRef.current = nextSet;
+        seenEventOrderRef.current = nextOrder;
+    }, []);
+
+    const mergeIncomingEvents = useCallback((incomingRows: EventRow[]) => {
+        setEvents((prev) => {
+            const byKey = new Map<string, EventRow>();
+            const out: EventRow[] = [];
+            for (const ev of incomingRows) {
+                if (!isValidEventRow(ev)) continue;
+                const k = eventStableKey(ev);
+                if (byKey.has(k)) continue;
+                byKey.set(k, ev);
+                out.push(ev);
+            }
+            for (const ev of prev) {
+                const k = eventStableKey(ev);
+                if (byKey.has(k)) continue;
+                byKey.set(k, ev);
+                out.push(ev);
+            }
+            const trimmed = out.slice(0, eventsLimit);
+            rememberEventKeys(trimmed);
+
+            if (typeof window !== "undefined") {
+                try {
+                    const { eventsKey, metaKey } = eventsStorageKeys(tf);
+                    window.localStorage.setItem(eventsKey, JSON.stringify(trimmed));
+                    window.localStorage.setItem(metaKey, JSON.stringify({ tf, updatedAt: Date.now() }));
+                } catch { }
+            }
+
+            return trimmed;
+        });
+    }, [eventsLimit, tf, rememberEventKeys]);
+
     async function loadTable() {
         setLoading(true);
         setErr(null);
@@ -389,36 +449,7 @@ export default function AlertsClient() {
             setSources(j.sources ?? null);
 
             const incoming = Array.isArray(j.data) ? j.data : [];
-
-            // Server data is source of truth; local cache is only UX bootstrap.
-            setEvents((prev) => {
-                const byKey = new Map<string, EventRow>();
-                const out: EventRow[] = [];
-                for (const ev of incoming) {
-                    if (!isValidEventRow(ev)) continue;
-                    const k = eventStableKey(ev);
-                    if (byKey.has(k)) continue;
-                    byKey.set(k, ev);
-                    out.push(ev);
-                }
-                for (const ev of prev) {
-                    const k = eventStableKey(ev);
-                    if (byKey.has(k)) continue;
-                    byKey.set(k, ev);
-                    out.push(ev);
-                }
-                const trimmed = out.slice(0, eventsLimit);
-
-                if (typeof window !== "undefined") {
-                    try {
-                        const { eventsKey, metaKey } = eventsStorageKeys(tf);
-                        window.localStorage.setItem(eventsKey, JSON.stringify(trimmed));
-                        window.localStorage.setItem(metaKey, JSON.stringify({ tf, updatedAt: Date.now() }));
-                    } catch { }
-                }
-
-                return trimmed;
-            });
+            mergeIncomingEvents(incoming);
         } catch (e: unknown) {
             setErr(errMsg(e));
             setSources(null);
@@ -434,6 +465,8 @@ export default function AlertsClient() {
 
     function clearEvents() {
         setEvents([]);
+        seenEventKeysRef.current = new Set();
+        seenEventOrderRef.current = [];
         if (typeof window !== "undefined") {
             const { eventsKey, metaKey } = eventsStorageKeys(tf);
             window.localStorage.removeItem(eventsKey);
@@ -522,6 +555,55 @@ export default function AlertsClient() {
     }, [tf, includeCalm, onlyStrong, strongScore, minScore, eventsLimit, scoreJump, cooldownSec, signalFilter, limit, dedupe, sortBy]);
 
     useEffect(() => {
+        if (mode !== "events") {
+            setEventsStreamLive(false);
+            return;
+        }
+        if (typeof window === "undefined" || typeof EventSource === "undefined") {
+            setEventsStreamLive(false);
+            return;
+        }
+
+        const latestTs = eventsRef.current.reduce((max, ev) => Math.max(max, Number(ev.ts ?? 0) || 0), 0);
+        const params = new URLSearchParams(eventsStreamBaseQuery);
+        params.set("since", String(latestTs || Date.now()));
+
+        const es = new EventSource(`/api/stream/events?${params.toString()}`);
+        let stopped = false;
+
+        es.onopen = () => {
+            if (!stopped) setEventsStreamLive(true);
+        };
+
+        const onEvent = (e: MessageEvent) => {
+            if (stopped) return;
+            try {
+                const parsed: unknown = JSON.parse(e.data);
+                if (!isValidEventRow(parsed)) return;
+                const key = eventStableKey(parsed);
+                if (seenEventKeysRef.current.has(key)) return;
+                mergeIncomingEvents([parsed]);
+            } catch {
+                // ignore bad event payload
+            }
+        };
+        es.addEventListener("event", onEvent as EventListener);
+
+        es.onerror = () => {
+            if (stopped) return;
+            setEventsStreamLive(false);
+            es.close();
+        };
+
+        return () => {
+            stopped = true;
+            setEventsStreamLive(false);
+            es.removeEventListener("event", onEvent as EventListener);
+            es.close();
+        };
+    }, [mode, tf, eventsStreamBaseQuery, mergeIncomingEvents]);
+
+    useEffect(() => {
         // при смене режима — делаем первичную загрузку
         if (mode === "events") {
             if (typeof window !== "undefined") {
@@ -556,14 +638,16 @@ export default function AlertsClient() {
 
     useEffect(() => {
         if (!auto) return;
+        if (mode === "events" && eventsStreamLive) return;
         const id = setInterval(() => refresh(), 5000);
         return () => clearInterval(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [auto, mode, tableQuery, eventsQuery]);
+    }, [auto, mode, tableQuery, eventsQuery, eventsStreamLive]);
 
     useEffect(() => {
         eventsRef.current = events;
-    }, [events]);
+        rememberEventKeys(events);
+    }, [events, rememberEventKeys]);
 
     const kpi = useMemo(() => {
         const total = mode === "events" ? events.length : rows.length;

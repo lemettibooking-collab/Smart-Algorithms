@@ -312,7 +312,8 @@ export function SymbolDrawer({
                                     if (!symbol) return;
                                     const key = "watchlist";
                                     const cur = new Set<string>(JSON.parse(localStorage.getItem(key) || "[]"));
-                                    cur.has(symbol) ? cur.delete(symbol) : cur.add(symbol);
+                                    if (cur.has(symbol)) cur.delete(symbol);
+                                    else cur.add(symbol);
                                     localStorage.setItem(key, JSON.stringify([...cur]));
                                 }}
                                 className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 hover:border-slate-600"

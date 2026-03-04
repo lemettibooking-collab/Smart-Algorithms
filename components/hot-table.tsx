@@ -1,10 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { HotSymbol } from "@/components/hot-client";
 import Sparkline from "@/components/sparkline";
 
 type Exchange = "binance" | "mexc";
+type HotRowUi = HotSymbol & {
+  newListing?: boolean | string;
+  spikeCandles?: number;
+  spikeNeed?: number;
+  spikeMode?: "pulse" | "scalp";
+  source?: "klines" | "fallback";
+  exchange?: Exchange;
+  baseAsset?: string | null;
+  changeApprox?: boolean;
+};
 
 function baseAssetFromSymbol(pair: string) {
   const s = String(pair ?? "").toUpperCase();
@@ -133,24 +143,21 @@ function CoinLogo({
     ].filter(Boolean);
   }, [logoUrl, iconUrl, base]);
 
-  const [src, setSrc] = useState<string>("");
   const [idx, setIdx] = useState(0);
-
-  useEffect(() => {
+  const sources = useMemo(() => {
+    let cached = "";
     try {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached && cached.startsWith("http")) {
-        setSrc(cached);
-        setIdx(0);
-        return;
-      }
+      const c = localStorage.getItem(cacheKey);
+      cached = c && c.startsWith("http") ? c : "";
     } catch {
-      // ignore
+      cached = "";
     }
 
-    setSrc(candidates[0] || "");
-    setIdx(0);
+    if (!cached) return candidates;
+    return [cached, ...candidates.filter((x) => x !== cached)];
   }, [cacheKey, candidates]);
+  const safeIdx = Math.max(0, Math.min(idx, Math.max(0, sources.length - 1)));
+  const src = sources[safeIdx] || "";
 
   const onLoad = () => {
     if (!src) return;
@@ -162,12 +169,11 @@ function CoinLogo({
   };
 
   const onError = () => {
-    const next = idx + 1;
+    const next = safeIdx + 1;
     setIdx(next);
 
-    const nextUrl = candidates[next] || "";
+    const nextUrl = sources[next] || "";
     if (nextUrl) {
-      setSrc(nextUrl);
       return;
     }
 
@@ -176,13 +182,13 @@ function CoinLogo({
     } catch {
       // ignore
     }
-    setSrc("");
   };
 
   return (
     <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-white/5">
       <div className="pointer-events-none absolute -top-3 left-2 h-6 w-6 rounded-full bg-white/10 blur-md" />
       {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={src}
           alt={base}
@@ -241,35 +247,36 @@ export function HotTable({
 
           <tbody>
             {rows.map((r) => {
-              const ch = Number((r as any).changePercent ?? 0);
-              const ch24 = Number((r as any).change24hPercent ?? 0);
-              const isNewListing = (r as any).newListing === true || (r as any).newListing === "true";
-              const spikeCandles = Number((r as any).spikeCandles ?? 0);
-              const spikeNeed = Number((r as any).spikeNeed ?? 0);
-              const spikeModeLabel = (r as any).spikeMode === "scalp" ? "Scalp" : "Pulse";
+              const row = r as HotRowUi;
+              const ch = Number(row.changePercent ?? 0);
+              const ch24 = Number(row.change24hPercent ?? 0);
+              const isNewListing = row.newListing === true;
+              const spikeCandles = Number(row.spikeCandles ?? 0);
+              const spikeNeed = Number(row.spikeNeed ?? 0);
+              const spikeModeLabel = row.spikeMode === "scalp" ? "Scalp" : "Pulse";
 
-              const rowExchange = ((r as any).exchange as Exchange) ?? exchange;
-              const baseAsset = ((r as any).baseAsset as string | null) ?? null;
+              const rowExchange = row.exchange ?? exchange;
+              const baseAsset = row.baseAsset ?? null;
 
               return (
                 <tr
-                  key={(r as any).symbol}
+                  key={row.symbol}
                   onClick={() => onRowClick?.(r)}
                   className={[
                     "border-t border-white/5 hover:bg-white/5 transition-colors",
                     onRowClick ? "cursor-pointer" : "",
-                    rowTintClass((r as any).signal),
+                    rowTintClass(row.signal),
                   ].join(" ")}
                 >
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2">
                       <div className="relative h-7 w-16 overflow-hidden rounded-full border border-white/10 bg-white/5">
                         <div
-                          className={["absolute inset-y-0 left-0", scoreGlowClass((r as any).score ?? 0)].join(" ")}
-                          style={{ width: scoreBarWidth((r as any).score ?? 0) }}
+                          className={["absolute inset-y-0 left-0", scoreGlowClass(row.score ?? 0)].join(" ")}
+                          style={{ width: scoreBarWidth(row.score ?? 0) }}
                         />
                         <div className="relative z-10 flex h-full items-center justify-center text-[11px] font-semibold text-white/80 tabular-nums">
-                          {Number((r as any).score ?? 0).toFixed(2)}
+                          {Number(row.score ?? 0).toFixed(2)}
                         </div>
                       </div>
                     </div>
@@ -278,14 +285,14 @@ export function HotTable({
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-3">
                       <CoinLogo
-                        symbol={(r as any).symbol}
-                        logoUrl={(r as any).logoUrl}
-                        iconUrl={(r as any).iconUrl}
+                        symbol={row.symbol}
+                        logoUrl={row.logoUrl}
+                        iconUrl={row.iconUrl}
                         baseAsset={baseAsset}
                       />
                       <div className="min-w-0">
                         <div className="relative inline-flex items-center">
-                          <span className="font-medium text-white/90 leading-tight">{(r as any).symbol}</span>
+                          <span className="font-medium text-white/90 leading-tight">{row.symbol}</span>
                           {isNewListing ? (
                             <span
                               className="ml-1 inline-flex rounded border border-amber-400/45 bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200"
@@ -294,7 +301,7 @@ export function HotTable({
                               NEW
                             </span>
                           ) : null}
-                          {(r as any).source === "fallback" ? (
+                          {row.source === "fallback" ? (
                             <span
                               className="absolute -top-0.5 -right-3.5 flex h-2 w-2 items-center justify-center rounded-full bg-white/5 text-[8px] font-semibold text-white/40"
                               title="Fallback: candle data unavailable (ticker-based approximation)"
@@ -308,17 +315,17 @@ export function HotTable({
                   </td>
 
                   <td className="px-3 py-3">
-                    <Sparkline symbol={(r as any).symbol} interval={trendInterval} exchange={rowExchange} />
+                    <Sparkline symbol={row.symbol} interval={trendInterval} exchange={rowExchange} />
                   </td>
 
-                  <td className="px-3 py-3 text-right tabular-nums text-white/90">${fmtPrice((r as any).price)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-white/90">${fmtPrice(row.price)}</td>
 
                   <td
                     className={[
                       "px-3 py-3 text-right tabular-nums",
                       ch > 0 ? "text-emerald-400" : ch < 0 ? "text-rose-400" : "text-white/70",
                     ].join(" ")}
-                    title={(r as any).changeApprox ? "Approximation (fallback when klines unavailable)" : "Exact (klines + live price)"}
+                    title={row.changeApprox ? "Approximation (fallback when klines unavailable)" : "Exact (klines + live price)"}
                   >
                     {fmtPct(ch)}
                   </td>
@@ -334,17 +341,17 @@ export function HotTable({
                     </td>
                   ) : null}
 
-                  <td className="px-3 py-3 text-right tabular-nums text-white/70">{(r as any).volume}</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-white/70">{(r as any).marketCap ?? "—"}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-white/70">{row.volume}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-white/70">{row.marketCap ?? "—"}</td>
                   <td
                     className="px-3 py-3 text-right tabular-nums text-white/70"
                     title={
-                      (r as any).volSpike == null && isNewListing
+                      row.volSpike == null && isNewListing
                         ? `Not enough candles: ${spikeCandles}/${spikeNeed}`
                         : undefined
                     }
                   >
-                    {fmtSpike((r as any).volSpike)}
+                    {fmtSpike(row.volSpike)}
                   </td>
 
                   <td className="px-3 py-3">
@@ -352,11 +359,11 @@ export function HotTable({
                       className={[
                         "inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[12px] font-medium backdrop-blur",
                         "transition-shadow hover:shadow-[0_0_22px_rgba(255,255,255,0.06)]",
-                        signalBadgeClassWithSource((r as any).signal, (r as any).source),
+                        signalBadgeClassWithSource(row.signal, row.source),
                       ].join(" ")}
-                      title={(r as any).source === "fallback" ? "Fallback (no candle data)" : undefined}
+                      title={row.source === "fallback" ? "Fallback (no candle data)" : undefined}
                     >
-                      {(r as any).signal}
+                      {row.signal}
                     </span>
                   </td>
                 </tr>
