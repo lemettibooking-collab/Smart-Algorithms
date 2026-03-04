@@ -42,5 +42,7 @@ next-env.d.ts
 .vscode/
 *.save
 data/*.db
+data/*.db-wal
+data/*.db-shm
 data/*.sqlite
 data/*.sqlite3
