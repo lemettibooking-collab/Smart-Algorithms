@@ -1,4 +1,3 @@
-import type { KlineInterval } from "@/lib/binance";
 import type { SymbolMetrics } from "@/lib/metrics";
 
 export type HotSymbol = {
@@ -9,7 +8,7 @@ export type HotSymbol = {
   volume: string; // compact string, e.g. "84.1M"
   signal: string; // Watch / Momentum / High Volume / Big Move
   score: number; // scanner score
-  interval: KlineInterval;
+  interval: string;
   metrics: SymbolMetrics | null;
 };
 

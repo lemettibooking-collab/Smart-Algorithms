@@ -37,7 +37,7 @@ const SPIKE_WHALE = 3.0;   // very abnormal
 const SPIKE_CONFIRM = 2.2; // confirmation for breakout/dump/reversal
 const SPIKE_WATCH = 1.8;   // optional “watch”, strict
 
-function n(v: any, fb = 0) {
+function n(v: unknown, fb = 0) {
     const x = Number(v);
     return Number.isFinite(x) ? x : fb;
 }
@@ -49,10 +49,6 @@ function absMoveThreshold(tf: string) {
 
 function clamp(x: number, lo: number, hi: number) {
     return Math.max(lo, Math.min(hi, x));
-}
-
-function isPos(x: number) {
-    return Number.isFinite(x) && x > 0;
 }
 
 /**

@@ -10,6 +10,7 @@ import { SymbolDrawer } from "@/components/symbol-drawer";
 
 type TF = "24h" | "1m" | "5m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1M" | "1y";
 type Exchange = "binance" | "mexc";
+type SpikeMode = "pulse" | "scalp";
 
 export type HotSymbol = {
   symbol: string;
@@ -23,6 +24,10 @@ export type HotSymbol = {
   volumeRaw?: number;
 
   volSpike: number | null;
+  spikeCandles?: number;
+  spikeNeed?: number;
+  newListing?: boolean;
+  spikeMode?: SpikeMode;
   score: number;
   signal: string;
 
@@ -66,6 +71,38 @@ type SignalEvent = {
   volSpike: number | null;
   source?: "klines" | "fallback";
 };
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  return v as Record<string, unknown>;
+}
+
+function normalizeHotRows(rows: unknown[]): HotSymbol[] {
+  return rows.map((row) => {
+    const rec = asRecord(row);
+    if (!rec) return row as HotSymbol;
+
+    const spikeCandlesNum = Number(rec.spikeCandles);
+    const spikeNeedNum = Number(rec.spikeNeed);
+
+    const spikeCandles = Number.isFinite(spikeCandlesNum) ? spikeCandlesNum : undefined;
+    const spikeNeed = Number.isFinite(spikeNeedNum) ? spikeNeedNum : undefined;
+
+    const newListingRaw = rec.newListing;
+    const newListing = newListingRaw === true || newListingRaw === "true";
+
+    const spikeModeRaw = rec.spikeMode;
+    const spikeMode = spikeModeRaw === "scalp" ? "scalp" : spikeModeRaw === "pulse" ? "pulse" : undefined;
+
+    return {
+      ...(row as HotSymbol),
+      spikeCandles,
+      spikeNeed,
+      newListing,
+      spikeMode,
+    };
+  });
+}
 
 function parseVolume(v: unknown) {
   const s = String(v ?? "").trim().toUpperCase();
@@ -113,6 +150,11 @@ function sanitizeExchange(v: unknown, fallback: Exchange): Exchange {
   if (s === "mexc") return "mexc";
   if (s === "binance") return "binance";
   return fallback;
+}
+
+function sanitizeSpikeMode(v: unknown, fallback: SpikeMode): SpikeMode {
+  const s = (typeof v === "string" ? v : "").trim().toLowerCase();
+  return s === "scalp" ? "scalp" : fallback;
 }
 
 function fmtVol(n: number) {
@@ -191,6 +233,7 @@ export function HotClient({
   const [tf, setTf] = useState<TF>(() => sanitizeTf(initialTf ?? "24h", "24h"));
 
   const [exchange, setExchange] = useState<Exchange>("binance");
+  const [spikeMode, setSpikeMode] = useState<SpikeMode>("pulse");
 
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -236,6 +279,23 @@ export function HotClient({
   useEffect(() => {
     setMinVolText(String(minVol));
   }, [minVol]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("hot:spikeMode");
+      if (raw) setSpikeMode(sanitizeSpikeMode(raw, "pulse"));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("hot:spikeMode", spikeMode);
+    } catch {
+      // ignore
+    }
+  }, [spikeMode]);
 
   const inFlightRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -314,6 +374,7 @@ export function HotClient({
       qs.set("limit", exchange === "mexc" ? "300" : "50");
       qs.set("exchange", exchange);
       qs.set("minVol", String(Math.max(0, Math.floor(minVol))));
+      qs.set("spikeMode", spikeMode);
 
       const res = await fetch(`/api/hot?${qs.toString()}`, {
         cache: "no-store",
@@ -328,11 +389,11 @@ export function HotClient({
       const tfServer = json.tf ? sanitizeTf(json.tf, tfSafe) : tfSafe;
       if (json.tf) setTf((prev) => sanitizeTf(json.tf, prev));
 
-      if ((json as any).exchange) {
-        setExchange((prev) => sanitizeExchange((json as any).exchange, prev));
+      if (json.exchange) {
+        setExchange((prev) => sanitizeExchange(json.exchange, prev));
       }
 
-      const data = json.data ?? [];
+      const data = normalizeHotRows(Array.isArray(json.data) ? json.data : []);
       setRows(data);
       setLastTs(json.ts ?? Date.now());
 
@@ -344,13 +405,13 @@ export function HotClient({
         return updated ?? prevSel;
       });
     } catch (e: unknown) {
-      if ((e as any)?.name === "AbortError") return;
+      if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setLoading(false);
       inFlightRef.current = false;
     }
-  }, [tf, exchange, minVol, pushFeedEvents, drawerOpen]);
+  }, [tf, exchange, minVol, spikeMode, pushFeedEvents, drawerOpen]);
 
   useEffect(() => {
     if (mountedRef.current) return;
@@ -367,7 +428,7 @@ export function HotClient({
   useEffect(() => {
     if (!mountedRef.current) return;
     refresh();
-  }, [tf, exchange, minVol, refresh]);
+  }, [tf, exchange, minVol, spikeMode, refresh]);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -492,6 +553,18 @@ export function HotClient({
           <option value="1M">1M</option>
           <option value="1y">1y</option>
           <option value="24h">24h (ticker)</option>
+        </select>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-white/50">VolSpike mode</span>
+        <select
+          value={spikeMode}
+          onChange={(e) => setSpikeMode(sanitizeSpikeMode(e.target.value, "pulse"))}
+          className="rounded-xl border border-white/10 bg-[rgb(var(--bg-2))] px-3 py-2 text-sm text-white/80 outline-none focus:border-[rgba(var(--accent),0.35)]"
+        >
+          <option value="pulse">Pulse</option>
+          <option value="scalp">Scalp</option>
         </select>
       </div>
 
