@@ -1,69 +1,54 @@
 import { NextResponse } from "next/server";
-import {
-  ALLOWED_INTERVALS,
-  fetchKlines,
-  isValidSymbol,
-  normalizeSymbol,
-  type KlineInterval,
-} from "@/lib/binance";
-import { calcMetrics } from "@/lib/metrics";
+import * as binance from "@/lib/binance";
+import * as mexc from "@/lib/mexc";
 
 export const runtime = "nodejs";
 
-type OkResp = {
-  ok: true;
-  symbol: string;
-  interval: KlineInterval;
-  limit: number;
-  candles: Awaited<ReturnType<typeof fetchKlines>>;
-  metrics: ReturnType<typeof calcMetrics>;
-  ts: number;
-};
+type Exchange = "binance" | "mexc";
 
-type ErrResp = {
-  ok: false;
-  error: string;
-  ts: number;
-};
+function getExchange(sp: URLSearchParams): Exchange {
+  const ex = (sp.get("exchange") || "binance").trim().toLowerCase();
+  return ex === "mexc" ? "mexc" : "binance";
+}
 
-function err(message: string, status = 400) {
-  return NextResponse.json(
-    { ok: false, error: message, ts: Date.now() } satisfies ErrResp,
-    { status, headers: { "cache-control": "no-store" } }
-  );
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
 }
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const sp = url.searchParams;
 
-  const symbolRaw = url.searchParams.get("symbol") ?? "";
-  const intervalRaw = (url.searchParams.get("interval") ?? "1h") as KlineInterval;
-  const limitRaw = url.searchParams.get("limit") ?? "120";
+  const exchange = getExchange(sp);
+  const symbol = (sp.get("symbol") || "").trim().toUpperCase();
+  const interval = (sp.get("interval") || "15m").trim();
+  const limit = clamp(Number(sp.get("limit") || "60"), 1, 1000);
 
-  const symbol = normalizeSymbol(symbolRaw);
-  if (!isValidSymbol(symbol)) return err("Invalid symbol");
-
-  if (!ALLOWED_INTERVALS.includes(intervalRaw)) {
-    return err(`Invalid interval. Allowed: ${ALLOWED_INTERVALS.join(", ")}`);
+  if (!symbol) {
+    return NextResponse.json({ ok: false, error: "symbol is required" }, { status: 400 });
   }
 
-  const limit = Math.min(1000, Math.max(10, Number(limitRaw) || 120));
+  const api = exchange === "mexc" ? mexc : binance;
 
-  const candles = await fetchKlines(symbol, intervalRaw, limit);
-  const metrics = calcMetrics(candles, intervalRaw);
+  if (!api.isValidInterval(interval)) {
+    return NextResponse.json({ ok: false, error: `invalid interval: ${interval}` }, { status: 400 });
+  }
 
-  const payload: OkResp = {
-    ok: true,
-    symbol,
-    interval: intervalRaw,
-    limit,
-    candles,
-    metrics,
-    ts: Date.now(),
-  };
+  try {
+    const candles = await api.fetchKlinesCached(symbol, interval, limit);
+    return NextResponse.json({ ok: true, exchange, symbol, interval, limit, candles });
+  } catch (e: any) {
+    // ✅ мягко: не валим UI и не спамим 500 на "symbol not found"
+    const msg = String(e?.message ?? e);
 
-  return NextResponse.json(payload, {
-    headers: { "cache-control": "no-store" },
-  });
+    // Частый кейс: 400/404 от биржи => отдаём пусто
+    if (msg.includes(" 400") || msg.includes(" 404") || msg.toLowerCase().includes("invalid symbol")) {
+      return NextResponse.json({ ok: true, exchange, symbol, interval, limit, candles: [] });
+    }
+
+    return NextResponse.json(
+      { ok: false, exchange, symbol, interval, limit, error: msg },
+      { status: 500 }
+    );
+  }
 }
-

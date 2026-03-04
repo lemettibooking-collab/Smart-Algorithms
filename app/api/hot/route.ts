@@ -1,119 +1,121 @@
 // app/api/hot/route.ts
 import { NextResponse } from "next/server";
-import { fetchKlines, type KlineInterval } from "@/lib/binance";
-import { calcMetrics, type SymbolMetrics } from "@/lib/metrics";
+import { TTLCache, InFlight } from "@/lib/server-cache";
+import { getMarketCapMap } from "@/lib/marketcap";
+import { getIconUrl } from "@/lib/icons";
+import { getMarketCapFallbackMap, type MarketCapSource } from "@/lib/marketcap-fallback";
+import { computeSignal as computeSignalStrict } from "@/lib/signals";
 
-type Binance24hTicker = {
-  symbol: string;
-  lastPrice: string;
-  priceChangePercent: string;
-  quoteVolume: string;
-};
+import {
+  fetch24hTicker as fetch24hTickerBinance,
+  fetchKlinesCached as fetchKlinesCachedBinance,
+  isUsdtSpotSymbol as isUsdtSpotSymbolBinance,
+  isStable,
+  isValidInterval as isValidIntervalBinance,
+  Candle as BinanceCandle,
+  baseAssetFromBinanceSymbol,
+} from "@/lib/binance";
 
-type HotSymbol = {
+import * as mexc from "@/lib/mexc";
+import { ensureBinanceWsStarted, getWsPriceSnap, getWsHealth } from "@/lib/binance-ws";
+import { ensureMexcWsStarted, getMexcWsPriceSnap, getMexcWsHealth } from "@/lib/mexc-ws";
+
+export const runtime = "nodejs";
+
+type Exchange = "binance" | "mexc";
+type AnyCandle = BinanceCandle | mexc.Candle;
+
+type HotRow = {
+  exchange: Exchange;
   symbol: string;
   price: number;
-  changePercent: number; // 24h percent from ticker
-  quoteVolume: number; // raw number for sorting/filters
-  volume: string; // compact string for UI
-  signal: string;
+
+  changePercent: number;
+  change24hPercent: number;
+  changeApprox?: boolean;
+
+  volume: string;
+  volumeRaw: number;
+
+  volSpike: number | null;
   score: number;
-  interval: KlineInterval;
-  metrics: SymbolMetrics | null;
+  signal: string;
+
+  source: "klines" | "fallback";
+
+  marketCap?: string;
+  marketCapRaw?: number | null;
+  marketCapSource?: MarketCapSource;
+
+  logoUrl?: string | null; // CoinGecko
+  iconUrl?: string | null; // CryptoCompare fallback
+  baseAsset?: string | null;
 };
 
-function toNumber(v: string): number {
+function num(v: any, fallback = 0) {
   const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function qNum(sp: URLSearchParams, key: string, def: number) {
+  const v = sp.get(key);
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
+}
+function qBool(sp: URLSearchParams, key: string, def: boolean) {
+  const v = sp.get(key);
+  if (v === null) return def;
+  return v === "1" || v === "true" || v === "yes";
+}
+
+function getTf(sp: URLSearchParams, fallback = "15m") {
+  const tf = sp.get("tf")?.trim();
+  if (tf) return tf;
+  const U = sp.get("U")?.trim();
+  if (U) return U;
+  return fallback;
+}
+
+function getExchange(sp: URLSearchParams): Exchange {
+  const ex = (sp.get("exchange") || "binance").trim().toLowerCase();
+  return ex === "mexc" ? "mexc" : "binance";
+}
+
+function makeKey(prefix: string, obj: Record<string, any>) {
+  return prefix + ":" + JSON.stringify(obj);
+}
+
+function isTickerMode(tf: string) {
+  const t = tf.trim().toLowerCase();
+  return t === "ticker" || t === "24h" || t === "24h (ticker)" || t === "24hr";
+}
+
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
 }
 
 function formatCompact(n: number): string {
-  if (!Number.isFinite(n)) return "0";
+  if (!Number.isFinite(n) || n === 0) return "0";
   const abs = Math.abs(n);
-  if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
-  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
+  if (abs >= 1e12) return (n / 1e12).toFixed(2) + "T";
+  if (abs >= 1e9) return (n / 1e9).toFixed(2) + "B";
+  if (abs >= 1e6) return (n / 1e6).toFixed(2) + "M";
+  if (abs >= 1e3) return (n / 1e3).toFixed(2) + "K";
   return n.toFixed(2);
 }
 
-function isProbablyStableBase(symbol: string): boolean {
-  const base = symbol.replace(/USDT$/, "");
-  const STABLE_BASES = new Set([
-    "USDC",
-    "FDUSD",
-    "TUSD",
-    "USDP",
-    "DAI",
-    "BUSD",
-    "PAX",
-    "USDS",
-    "EUR",
-    "GBP",
-    "TRY",
-    "BRL",
-  ]);
-  return STABLE_BASES.has(base);
-}
+const hotCache = new TTLCache<any>(30_000, 200);
+const hotInFlight = new InFlight<any>();
 
-function isLeveragedOrWeird(symbol: string): boolean {
-  return /(UP|DOWN|BULL|BEAR)USDT$/.test(symbol);
-}
-
-// --- signal + score from your metrics ---
-function classify(metrics: SymbolMetrics | null, changePercent24h: number, quoteVol: number) {
-  const vSpike = Number(metrics?.volumeSpike ?? 0);
-  const c1h = Number(metrics?.change1h ?? 0);
-  const c4h = Number(metrics?.change4h ?? 0);
-  const c24h = Number(metrics?.change24h ?? changePercent24h);
-
-  const abs1h = Math.abs(c1h);
-  const abs4h = Math.abs(c4h);
-  const abs24 = Math.abs(c24h);
-
-  let signal = "Watch";
-
-  // label priority
-  if (abs24 >= 10) signal = "Big Move";
-  else if (vSpike >= 3 || quoteVol >= 300_000_000) signal = "High Volume";
-  else if (abs4h >= 3 || abs1h >= 1.5) signal = "Momentum";
-
-  // score
-  let score = 0;
-
-  // volume spike weight
-  if (vSpike >= 6) score += 6;
-  else if (vSpike >= 4) score += 4.5;
-  else if (vSpike >= 3) score += 3.5;
-  else if (vSpike >= 2) score += 2;
-
-  // momentum weight
-  if (abs1h >= 2) score += 2;
-  else if (abs1h >= 1) score += 1;
-
-  if (abs4h >= 4) score += 2;
-  else if (abs4h >= 2) score += 1;
-
-  if (abs24 >= 8) score += 2;
-
-  // liquidity bonus
-  if (quoteVol >= 500_000_000) score += 1.5;
-  else if (quoteVol >= 200_000_000) score += 1;
-
-  // small bonus for trend direction (optional)
-  score += Math.min(1.5, abs1h / 2);
-
-  return { signal, score: Number(score.toFixed(2)) };
-}
-
-// --- concurrency limiter ---
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = [];
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length) as any;
   let i = 0;
 
-  const workers = Array.from({ length: Math.max(1, limit) }, async () => {
-    while (i < items.length) {
+  const workers = new Array(Math.max(1, limit)).fill(0).map(async () => {
+    while (true) {
       const idx = i++;
-      out[idx] = await fn(items[idx]);
+      if (idx >= items.length) break;
+      out[idx] = await fn(items[idx], idx);
     }
   });
 
@@ -121,106 +123,757 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
-// --- in-memory TTL cache ---
-let cache: { key: string; ts: number; payload: any } | null = null;
+function hotTtlMs(tf: string) {
+  if (tf === "1m") return 2_000;
+  if (tf === "3m") return 2_500;
+  if (tf === "5m") return 3_000;
+  if (tf === "15m") return 5_000;
+  if (tf === "30m") return 8_000;
+  return 15_000;
+}
+
+function isFastTf(tf: string) {
+  return tf === "1m" || tf === "5m" || tf === "15m";
+}
+
+type MarketInfo = { cap: number; logoUrl?: string | null };
+
+function attachMarketCap(row: HotRow, capMap: Map<string, MarketInfo>) {
+  const base = (row.baseAsset ?? baseAssetFromBinanceSymbol(row.symbol) ?? "").toUpperCase().trim();
+  if (!base) return row;
+
+  const info = capMap.get(base);
+  const cap = info?.cap;
+
+  if (Number.isFinite(cap) && (cap as number) > 0) {
+    row.marketCapRaw = cap as number;
+    row.marketCap = formatCompact(cap as number);
+    row.marketCapSource = "cg";
+  } else {
+    row.marketCapRaw = row.marketCapRaw ?? null;
+    row.marketCapSource = row.marketCapSource ?? "none";
+  }
+
+  row.logoUrl = info?.logoUrl ?? null;
+  return row;
+}
+
+async function attachFallbackIcon(row: HotRow) {
+  if (row.logoUrl || !row.baseAsset) {
+    row.iconUrl = null;
+    return row;
+  }
+  const icon = await getIconUrl(row.baseAsset);
+  row.iconUrl = icon ?? null;
+  return row;
+}
+
+async function attachMarketCapFallbackBatch(
+  rows: HotRow[],
+  capMap: Map<string, { cap: number; logoUrl?: string | null }>,
+  exchange: Exchange
+) {
+  const missingBases = Array.from(
+    new Set(
+      rows
+        .filter((r) => !(Number.isFinite(r.marketCapRaw as any) && (r.marketCapRaw as number) > 0))
+        .map((r) => String(r.baseAsset ?? "").trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
+
+  if (missingBases.length === 0) return rows;
+
+  const stats = { externalCalls: 0 };
+  const fallbackMap = await getMarketCapFallbackMap({
+    baseAssets: missingBases,
+    coingeckoCapMap: capMap,
+    allowMexcScrape: exchange === "mexc",
+    maxLookups: 10,
+    stats,
+  });
+
+  let found = 0;
+  for (const r of rows) {
+    const base = String(r.baseAsset ?? "").trim().toUpperCase();
+    if (!base) continue;
+    const got = fallbackMap.get(base);
+    if (!got) continue;
+    r.marketCapSource = got.source;
+    if (Number.isFinite(got.marketCap as any) && (got.marketCap as number) > 0) {
+      r.marketCapRaw = got.marketCap as number;
+      r.marketCap = formatCompact(got.marketCap as number);
+      found++;
+    } else {
+      r.marketCapRaw = r.marketCapRaw ?? null;
+    }
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    const unresolved = rows.filter((r) => !(Number.isFinite(r.marketCapRaw as any) && (r.marketCapRaw as number) > 0)).length;
+    console.debug(
+      "[hot:marketcap]",
+      JSON.stringify({
+        exchange,
+        requestedAssets: missingBases.length,
+        lookedUpAssets: Math.min(missingBases.length, 10),
+        found,
+        unresolved,
+        externalCalls: stats.externalCalls ?? 0,
+      })
+    );
+  }
+
+  return rows;
+}
+
+function median(nums: number[]) {
+  const a = nums.filter((x) => Number.isFinite(x)).slice().sort((x, y) => x - y);
+  if (a.length === 0) return 0;
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+}
+
+function compute24hPercent(openPrice: number, currentPrice: number): number {
+  if (!(openPrice > 0) || !(currentPrice > 0)) return Number.NaN;
+  return ((currentPrice - openPrice) / openPrice) * 100;
+}
+
+function tfScaleFrom24h(tf: string) {
+  const m = (x: number) => x / 1440;
+  switch (tf) {
+    case "1m": return m(1);
+    case "3m": return m(3);
+    case "5m": return m(5);
+    case "15m": return m(15);
+    case "30m": return m(30);
+    case "1h": return m(60);
+    case "2h": return m(120);
+    case "4h": return m(240);
+    case "6h": return m(360);
+    case "8h": return m(480);
+    case "12h": return m(720);
+    case "1d": return 1;
+    case "1w": return 7;
+    case "1M": return 30;
+    default: return m(15);
+  }
+}
+
+function lastClosedIndex(candles: AnyCandle[]) {
+  if (!candles || candles.length < 1) return -1;
+  const now = Date.now();
+  let idxLast = candles.length - 1;
+  const last: any = candles[idxLast];
+  if (Number.isFinite(Number(last.closeTime)) && Number(last.closeTime) > now) idxLast = Math.max(0, idxLast - 1);
+  return idxLast;
+}
+
+function lastClosedCandleClose(candles: AnyCandle[]): number | null {
+  const idx = lastClosedIndex(candles);
+  if (idx < 0) return null;
+  const c: any = candles[idx];
+  const close = Number(c?.close);
+  return Number.isFinite(close) && close > 0 ? close : null;
+}
+
+function computeTfChangeFromCandles(candles: AnyCandle[], currentPrice: number): number | null {
+  const idxLast = lastClosedIndex(candles);
+  if (idxLast < 0) return null;
+
+  const baseC: any = candles[idxLast];
+  let base = Number.isFinite(Number(baseC?.open)) ? Number(baseC.open) : Number.NaN;
+  if (!(base > 0) && idxLast - 1 >= 0) base = Number((candles[idxLast - 1] as any).close);
+  if (!(base > 0)) return null;
+
+  const price = Number.isFinite(currentPrice) && currentPrice > 0 ? currentPrice : Number(baseC?.close);
+  if (!(price > 0)) return null;
+
+  return ((price - base) / base) * 100;
+}
+
+function computeCandleVolSpikeFromCandles(candles: AnyCandle[]) {
+  if (!candles || candles.length < 22) return 0;
+
+  const idxLast = lastClosedIndex(candles);
+  if (idxLast < 21) return 0;
+
+  const startPrev = idxLast - 20;
+
+  const qvAt = (c: any) => {
+    // 1) quote volume (если есть)
+    const q = Number(
+      c.quoteVolume ??
+      c.quoteVol ??
+      c.q ??
+      c.quote ??
+      c.turnover ??
+      c.amountQuote ??
+      c.quoteAmount ??
+      c.quoteAssetVolume
+    );
+    if (Number.isFinite(q) && q > 0) return q;
+
+    // 2) base volume (если есть) -> переводим в quote через close
+    const v = Number(c.volume ?? c.vol ?? c.baseVolume ?? c.baseVol ?? c.v);
+    const close = Number(c.close ?? c.c);
+    if (Number.isFinite(v) && v > 0 && Number.isFinite(close) && close > 0) return v * close;
+
+    return 0;
+  };
+
+  const lastQv = qvAt((candles as any)[idxLast]);
+  if (!(lastQv > 0)) return 0;
+
+  const prevArr = (candles as any).slice(startPrev, idxLast).map(qvAt);
+  const sma = prevArr.reduce((a: number, v: number) => a + v, 0) / prevArr.length;
+  if (!(sma > 0)) return 0;
+
+  return lastQv / sma;
+}
+
+function applyIlliquidVolSpikeFilter(volSpike: number | null, candles: AnyCandle[], minSmaQuote: number) {
+  if (volSpike == null) return null;
+  if (!candles || candles.length < 22) return volSpike;
+
+  const idxLast = lastClosedIndex(candles);
+  if (idxLast < 21) return volSpike;
+
+  const startPrev = idxLast - 20;
+
+  const qvAt = (c: any) => {
+    // 1) quote volume (если есть)
+    const q = Number(
+      c.quoteVolume ??
+      c.quoteVol ??
+      c.q ??
+      c.quote ??
+      c.turnover ??
+      c.amountQuote ??
+      c.quoteAmount ??
+      c.quoteAssetVolume
+    );
+    if (Number.isFinite(q) && q > 0) return q;
+
+    // 2) base volume (если есть) -> переводим в quote через close
+    const v = Number(c.volume ?? c.vol ?? c.baseVolume ?? c.baseVol ?? c.v);
+    const close = Number(c.close ?? c.c);
+    if (Number.isFinite(v) && v > 0 && Number.isFinite(close) && close > 0) return v * close;
+
+    return 0;
+  };
+
+  const prevArr = (candles as any).slice(startPrev, idxLast).map(qvAt);
+  const sma = prevArr.reduce((a: number, v: number) => a + v, 0) / prevArr.length;
+
+  if (!Number.isFinite(sma) || sma <= 0) return volSpike;
+  if (sma < minSmaQuote) return null;
+
+  return volSpike;
+}
+function getLiveSnap(exchange: Exchange, symbol: string, t: any) {
+  if (exchange === "binance") {
+    const ws = getWsPriceSnap(symbol);
+    const price = ws?.price ?? num(t.lastPrice);
+    const open24h = ws?.open24h ?? num(t.openPrice);
+    const quoteVol24h = ws?.quoteVol24h ?? num(t.quoteVolume);
+    const wsOk = !!ws;
+    return { price, open24h, quoteVol24h, wsOk };
+  }
+
+  const ws = getMexcWsPriceSnap(symbol);
+  const price = ws?.price ?? num(t.lastPrice);
+
+  let open24h = num(t.openPrice);
+  let quoteVol24h = num(t.quoteVolume);
+
+  if (!(open24h > 0)) open24h = ws?.open24h ?? 0;
+  if (!(quoteVol24h > 0)) quoteVol24h = ws?.quoteVol24h ?? 0;
+
+  const wsOk = !!ws;
+  return { price, open24h, quoteVol24h, wsOk };
+}
+
+function rowFromTicker(exchange: Exchange, t: any, tf: string, baseAsset: string | null, opts?: { tickerMode?: boolean }): HotRow {
+  const symbol = String(t.symbol);
+  const snap = getLiveSnap(exchange, symbol, t);
+
+  const change24hPercent = compute24hPercent(snap.open24h, snap.price);
+  const approxTf = Number.isFinite(change24hPercent) ? change24hPercent * tfScaleFrom24h(tf) : Number.NaN;
+
+  const tickerMode = !!opts?.tickerMode;
+  const changePercent = tickerMode ? change24hPercent : approxTf;
+
+  const volumeRaw = snap.quoteVol24h;
+
+  const base: HotRow = {
+    exchange,
+    symbol,
+    price: snap.price,
+    changePercent: Number.isFinite(changePercent) ? changePercent : 0,
+    change24hPercent,
+    changeApprox: tickerMode ? undefined : true,
+    volumeRaw,
+    volume: formatCompact(volumeRaw),
+    volSpike: null,
+    score: 0,
+    signal: "Calm",
+    source: "fallback",
+    baseAsset,
+    logoUrl: null,
+    iconUrl: null,
+  };
+
+  // strict classifier (ticker semantics)
+  base.signal = computeSignalStrict({
+    changePercent: base.changePercent,
+    change24hPercent: base.change24hPercent,
+    volSpike: null,
+    vol24hQuote: volumeRaw,
+    mode: "ticker",
+    tf: tickerMode ? "24h" : tf,
+  });
+
+  const cp = Number.isFinite(base.changePercent) ? base.changePercent : 0;
+  base.score = clamp(Math.abs(cp) * 0.20 + (volumeRaw > 0 ? 1 : 0), 0, 10);
+  return base;
+}
+
+function wsHealthFor(exchange: Exchange) {
+  if (exchange === "binance") return getWsHealth();
+  if (exchange === "mexc") return getMexcWsHealth();
+  return { connected: false, lastMsgAgeMs: null as any, size: 0 };
+}
+
+function withLiveWs(payload: any, exchange: Exchange) {
+  return { ...payload, ws: wsHealthFor(exchange) };
+}
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const ts = Date.now();
+  const sp = url.searchParams;
 
-  // params
-  // /api/hot?top=40&limit=30&interval=1h&klineLimit=120&ttl=8&concurrency=6&minVol=50000000&includeStables=0
-  const top = Math.min(Math.max(Number(url.searchParams.get("top") ?? 40), 1), 200);
-  const outLimit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 30), 1), top);
+  const exchange = getExchange(sp);
+  if (exchange === "binance") ensureBinanceWsStarted();
+  if (exchange === "mexc") ensureMexcWsStarted();
 
-  const interval = (url.searchParams.get("interval") ?? "1h") as KlineInterval;
-  const klineLimit = Math.min(Math.max(Number(url.searchParams.get("klineLimit") ?? 120), 30), 500);
+  const tf = getTf(sp, "15m").trim();
+  const limitN = clamp(qNum(sp, "limit", 120), 1, 300);
 
-  const concurrency = Math.min(Math.max(Number(url.searchParams.get("concurrency") ?? 6), 1), 12);
-  const ttlSec = Math.min(Math.max(Number(url.searchParams.get("ttl") ?? 8), 1), 60);
+  const klineCandidatesDefault = exchange === "mexc" ? 120 : limitN;
+  let klineCandidates = clamp(qNum(sp, "klineCandidates", klineCandidatesDefault), 10, 300);
+  klineCandidates = Math.min(klineCandidates, limitN);
 
-  const minVol = Number(url.searchParams.get("minVol") ?? 50_000_000);
-  const includeStables = url.searchParams.get("includeStables") === "1";
+  const candidatePoolDefault = exchange === "mexc" ? 2000 : Math.min(300, limitN);
+  const candidatePool = clamp(qNum(sp, "candidatePool", candidatePoolDefault), 50, 5000);
 
-  const cacheKey = JSON.stringify({ top, outLimit, interval, klineLimit, minVol, includeStables });
+  const minVol = qNum(sp, "minVol", 0);
+  const includeStables = qBool(sp, "includeStables", false);
 
-  if (cache && cache.key === cacheKey && ts - cache.ts < ttlSec * 1000) {
-    return NextResponse.json(cache.payload, {
-      status: 200,
-      headers: { "Cache-Control": `public, max-age=${ttlSec}`, "X-Cache": "HIT" },
-    });
+  const candleSpikeParam = sp.get("candleSpike");
+  const candleSpike = candleSpikeParam === null ? true : qBool(sp, "candleSpike", true);
+  const candleSpikeLimit = clamp(qNum(sp, "candleSpikeLimit", 30), 21, 60);
+
+  const spikeIlliquidFilter = qBool(sp, "spikeIlliquidFilter", true);
+  const spikeMinSmaQuote = clamp(qNum(sp, "spikeMinSmaQuote", 100), 0, 1_000_000);
+
+  const cacheKey = makeKey("hot", {
+    exchange,
+    tf,
+    limitN,
+    klineCandidates,
+    candidatePool,
+    minVol,
+    includeStables,
+    candleSpike,
+    candleSpikeLimit,
+    spikeIlliquidFilter,
+    spikeMinSmaQuote,
+  });
+
+  const ttlMs = hotTtlMs(isTickerMode(tf) ? "24h" : tf);
+
+  const cached = hotCache.get(cacheKey);
+  if (cached) return NextResponse.json(withLiveWs({ ...cached, cache: { hit: true, ttlMs } }, exchange));
+
+  const inflight = hotInFlight.get(cacheKey);
+  if (inflight) {
+    const data = await inflight;
+    return NextResponse.json(withLiveWs({ ...data, cache: { hit: true, inflight: true, ttlMs } }, exchange));
   }
 
-  try {
-    const r = await fetch("https://api.binance.com/api/v3/ticker/24hr", {
-      cache: "no-store",
-      headers: { accept: "application/json" },
-    });
+  const p = (async () => {
+    const fetch24hTicker = exchange === "mexc" ? mexc.fetch24hTicker : fetch24hTickerBinance;
+    const fetchKlinesCached = exchange === "mexc" ? mexc.fetchKlinesCached : fetchKlinesCachedBinance;
+    const isUsdtSpotSymbol = exchange === "mexc" ? mexc.isUsdtSpotSymbol : isUsdtSpotSymbolBinance;
+    const isValidInterval = exchange === "mexc" ? mexc.isValidInterval : isValidIntervalBinance;
 
-    if (!r.ok) {
-      return NextResponse.json(
-        { ok: false, data: [], ts, error: `Binance HTTP ${r.status}` },
-        { status: 502 }
-      );
+    const mexcBaseBySymbol = new Map<string, string>();
+    if (exchange === "mexc") {
+      try {
+        const info = await mexc.fetchExchangeInfoCached();
+        const symbols: any[] = Array.isArray(info?.symbols) ? info.symbols : [];
+        for (const s of symbols) {
+          const sym = String(s?.symbol ?? "").toUpperCase();
+          const base = String(s?.baseAsset ?? "").toUpperCase();
+          if (sym) mexcBaseBySymbol.set(sym, base);
+        }
+      } catch {
+        // ignore
+      }
     }
 
-    const all = (await r.json()) as Binance24hTicker[];
+    const tickers = await fetch24hTicker();
+    const capMap = await getMarketCapMap();
 
-    let rows = all.filter((t) => t.symbol.endsWith("USDT"));
-    rows = rows.filter((t) => !isLeveragedOrWeird(t.symbol));
-    if (!includeStables) rows = rows.filter((t) => !isProbablyStableBase(t.symbol));
-    rows = rows.filter((t) => toNumber(t.quoteVolume) >= minVol);
-    rows.sort((a, b) => toNumber(b.quoteVolume) - toNumber(a.quoteVolume));
+    let base = tickers
+      .filter((t) => isUsdtSpotSymbol(String((t as any).symbol)))
+      .filter((t) => (includeStables ? true : !isStable(String((t as any).symbol))));
 
-    const picked = rows.slice(0, top);
+    if (exchange === "binance" && minVol > 0) {
+      base = base.filter((t) => num((t as any).quoteVolume) >= minVol);
+    }
 
-    const enriched = await mapLimit(picked, concurrency, async (t) => {
-      const symbol = t.symbol;
-      const price = toNumber(t.lastPrice);
-      const changePercent = toNumber(t.priceChangePercent);
-      const quoteVol = toNumber(t.quoteVolume);
+    if (exchange === "mexc") {
+      base.sort((a, b) => {
+        const ap = num((a as any).lastPrice);
+        const ao = num((a as any).openPrice);
+        const bp = num((b as any).lastPrice);
+        const bo = num((b as any).openPrice);
 
-      const candles = await fetchKlines(symbol, interval, klineLimit);
-      const metrics = candles.length ? calcMetrics(candles, interval) : null;
+        const aCh = ao > 0 ? ((ap - ao) / ao) * 100 : 0;
+        const bCh = bo > 0 ? ((bp - bo) / bo) * 100 : 0;
 
-      const { signal, score } = classify(metrics, changePercent, quoteVol);
+        return Math.abs(bCh) - Math.abs(aCh);
+      });
+    } else {
+      base.sort((a, b) => num((b as any).quoteVolume) - num((a as any).quoteVolume));
+    }
 
-      const out: HotSymbol = {
-        symbol,
-        price,
-        changePercent,
-        quoteVolume: quoteVol,
-        volume: formatCompact(quoteVol),
-        signal,
-        score,
-        interval,
-        metrics,
+    const maxCap = exchange === "mexc" ? 5000 : 300;
+    const pool = base.slice(0, Math.max(1, Math.min(maxCap, candidatePool)));
+
+    const candidates =
+      exchange === "mexc"
+        ? (minVol > 0 ? pool.filter((t) => num((t as any).quoteVolume) >= minVol) : pool)
+        : pool;
+
+    const getBaseAsset = (sym: string): string | null => {
+      if (exchange === "mexc") return mexcBaseBySymbol.get(sym.toUpperCase()) ?? null;
+      return baseAssetFromBinanceSymbol(sym) ?? null;
+    };
+
+    // -------- ticker mode --------
+    // -------- ticker mode (24h) --------
+    if (isTickerMode(tf) || !isValidInterval(tf)) {
+      let wsUsed = 0;
+
+      // 1) собираем базовые строки (24h% + 24h volume), без spike пока
+      const baseRows = candidates.map((t) => {
+        const sym = String((t as any).symbol);
+        const baseAsset = getBaseAsset(sym);
+
+        const snap = getLiveSnap(exchange, sym, t);
+        if (snap.wsOk) wsUsed++;
+
+        // tickerMode true => changePercent = 24h%
+        const r = rowFromTicker(exchange, t, "1d", baseAsset, { tickerMode: true });
+
+        // в ticker-mode volSpike будем считать по 1h свечам, поэтому тут ставим null
+        r.volSpike = null;
+
+        return attachMarketCap(r, capMap);
+      });
+
+      // 2) считаем candle volSpike по 1h свечам только для top N по объёму (чтобы не долбить лимиты)
+      const TOP_SPIKE_N = 60;
+      const spikeInterval = "1h";
+      const spikeKlinesLimit = 22; // достаточно для SMA20 + last
+
+      const topForSpike = [...candidates]
+        .slice()
+        .sort((a, b) => num((b as any).quoteVolume) - num((a as any).quoteVolume))
+        .slice(0, TOP_SPIKE_N);
+
+      const spikeBySymbol = new Map<string, number | null>();
+
+      const spikeConcurrency = exchange === "mexc" ? 3 : 6;
+
+      await mapLimit(topForSpike, spikeConcurrency, async (t) => {
+        const sym = String((t as any).symbol);
+        try {
+          const candles = (await fetchKlinesCached(sym, spikeInterval, spikeKlinesLimit)) as AnyCandle[];
+          let spike = computeCandleVolSpikeFromCandles(candles);
+
+          let volSpike: number | null =
+            Number.isFinite(spike) && spike > 0 ? spike : 0;
+
+          // применяем фильтр "illiquid spike" (тот же, что в klines-mode)
+          if (spikeIlliquidFilter) {
+            volSpike = applyIlliquidVolSpikeFilter(volSpike, candles, spikeMinSmaQuote);
+          }
+
+          if (volSpike != null) volSpike = clamp(volSpike, 0, 99);
+
+          spikeBySymbol.set(sym, volSpike);
+        } catch {
+          spikeBySymbol.set(sym, null);
+        }
+      });
+
+      // 3) назначаем volSpike (1h candle-based) + пересчитываем score + сигнал
+      const rowsAll = baseRows.map((r) => {
+        const sym = r.symbol;
+        const cp = Number.isFinite(r.changePercent) ? r.changePercent : 0;
+
+        const candleSpike = spikeBySymbol.has(sym) ? spikeBySymbol.get(sym)! : null;
+        r.volSpike = candleSpike;
+
+        // score: строго, чтобы не было "вечных 10" на ликвидных монетах
+        const spikePart = r.volSpike != null ? r.volSpike : 0;
+        r.score = clamp(Math.abs(cp) * 0.12 + spikePart * 0.8, 0, 10);
+
+        // базовый строгий ticker-сигнал (по движению)
+        let sig = computeSignalStrict({
+          changePercent: r.changePercent,       // тут это 24h%
+          change24hPercent: r.change24hPercent, // тот же 24h%
+          volSpike: r.volSpike,                 // candle spike по 1h
+          vol24hQuote: r.volumeRaw,
+          mode: "ticker",
+          tf: "24h",
+        });
+
+        // IMPORTANT: в ticker-mode computeSignalStrict специально не использует spike для Whale/Breakout.
+        // Но теперь у нас spike candle-based, и мы можем добавить ОДНУ строгую аномалию:
+        // "Whale Activity" = spike>=3 и цена почти стоит (|24h%| < 2%)
+        if (
+          sig === "Calm" &&
+          r.volSpike != null &&
+          r.volSpike >= 3.0 &&
+          Math.abs(r.changePercent) < 2.0
+        ) {
+          sig = "Whale Activity";
+        }
+
+        r.signal = sig;
+        return r;
+      });
+
+      // сортируем по score как и раньше
+      rowsAll.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+      const rows = rowsAll.slice(0, limitN);
+
+      const rowsWithIcons = await Promise.all(rows.map(attachFallbackIcon));
+      let rowsFinal = rowsWithIcons;
+
+      rowsFinal = await attachMarketCapFallbackBatch(rowsFinal, capMap, exchange);
+
+      const payload = {
+        ok: true,
+        exchange,
+        tf,
+        data: rowsFinal,
+        ts: Date.now(),
+        mode: "ticker" as const,
+        ws: wsHealthFor(exchange),
+        degraded: false,
+        degradeReason: [] as string[],
+        computedBy: {
+          klines: 0,
+          tickerFallback: rowsFinal.length,
+          wsUsed,
+          rejected: 0,
+          spikeKlines: spikeBySymbol.size,
+          spikeInterval,
+        },
       };
 
-      return out;
+      hotCache.set(cacheKey, payload, ttlMs);
+      return payload;
+    }
+
+    // -------- klines mode --------
+    const kTop = candidates.slice(0, klineCandidates);
+    const CONCURRENCY = exchange === "mexc" ? 4 : isFastTf(tf) ? 8 : 6;
+
+    let rejects = 0;
+    let computedKlines = 0;
+    const degradeReason: string[] = [];
+
+    const computed = await mapLimit(kTop, CONCURRENCY, async (t) => {
+      const symbol = String((t as any).symbol);
+      const baseAsset = getBaseAsset(symbol);
+
+      const snap = getLiveSnap(exchange, symbol, t);
+      const currentPriceWs = snap.price;
+      const openPrice24h = snap.open24h;
+      const vol24hQuote = snap.quoteVol24h;
+      const wsOk = snap.wsOk;
+
+      try {
+        const limit = candleSpike ? candleSpikeLimit + 1 : 2;
+        const candles = (await fetchKlinesCached(symbol, tf, limit)) as AnyCandle[];
+
+        const change24hPercent = compute24hPercent(openPrice24h, currentPriceWs);
+
+        let exact = computeTfChangeFromCandles(candles, currentPriceWs);
+
+        if (
+          wsOk &&
+          exact != null &&
+          Number.isFinite(change24hPercent) &&
+          Math.abs(exact) > 50 &&
+          Math.abs(change24hPercent) < 5
+        ) {
+          const cc = lastClosedCandleClose(candles);
+          if (cc && cc > 0) {
+            const stabilized = computeTfChangeFromCandles(candles, cc);
+            if (stabilized != null && Number.isFinite(stabilized) && Math.abs(stabilized) < Math.abs(exact)) {
+              exact = stabilized;
+            }
+          }
+        }
+
+        const approx = Number.isFinite(change24hPercent) ? change24hPercent * tfScaleFrom24h(tf) : Number.NaN;
+
+        let changePercent: number;
+        let changeApprox = false;
+
+        if (exact == null || !Number.isFinite(exact)) {
+          changeApprox = true;
+          changePercent = Number.isFinite(approx) ? approx : 0;
+        } else {
+          changePercent = exact;
+        }
+
+        let volSpike: number | null = null;
+        if (candleSpike) {
+          const spikeRaw = computeCandleVolSpikeFromCandles(candles);
+          volSpike = Number.isFinite(spikeRaw) && spikeRaw > 0 ? spikeRaw : 0;
+
+          if (spikeIlliquidFilter) {
+            volSpike = applyIlliquidVolSpikeFilter(volSpike, candles, spikeMinSmaQuote);
+          }
+        } else {
+          volSpike = null;
+        }
+
+        if (volSpike != null) volSpike = clamp(volSpike, 0, 99);
+
+        const score = clamp(
+          Math.abs(Number.isFinite(changePercent) ? changePercent : 0) * 0.22 + (volSpike != null ? volSpike : 0) * 0.6,
+          0,
+          10
+        );
+
+        const signal = computeSignalStrict({
+          changePercent,
+          change24hPercent,
+          volSpike,
+          vol24hQuote,
+          mode: "klines",
+          tf, // ✅ правильный timeframe
+        });
+
+        computedKlines++;
+
+        const row: HotRow = {
+          exchange,
+          symbol,
+          price: currentPriceWs,
+          changePercent,
+          change24hPercent,
+          changeApprox: changeApprox ? true : undefined,
+          volumeRaw: vol24hQuote,
+          volume: formatCompact(vol24hQuote),
+          volSpike,
+          score,
+          signal,
+          source: "klines",
+          baseAsset,
+          logoUrl: null,
+          iconUrl: null,
+        };
+
+        return row;
+      } catch {
+        rejects++;
+        return null;
+      }
     });
 
-    // now sort by score (scanner output)
-    enriched.sort((a, b) => b.score - a.score);
+    const bySymbol = new Map<string, HotRow>();
+    for (let i = 0; i < kTop.length; i++) {
+      const sym = String((kTop[i] as any).symbol);
+      const r = computed[i];
+      if (r) bySymbol.set(sym, r);
+    }
 
-    const data = enriched.slice(0, outLimit);
+    let wsUsed = 0;
+
+    const rowsAll = candidates.map((t) => {
+      const sym = String((t as any).symbol);
+      const baseAsset = getBaseAsset(sym);
+
+      const fromK = bySymbol.get(sym);
+      const r = fromK ? fromK : rowFromTicker(exchange, t, tf, baseAsset, { tickerMode: false });
+
+      const snap = getLiveSnap(exchange, sym, t);
+      if (snap.wsOk) wsUsed++;
+
+      return attachMarketCap(r, capMap);
+    });
+
+    const computedTickerFallback = rowsAll.length - computedKlines;
+    const degraded = rejects > 0 || computedKlines < kTop.length;
+    if (degraded) degradeReason.push("klines_failed_or_rate_limited");
+
+    rowsAll.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    const rows = rowsAll.slice(0, limitN);
+
+    const rowsWithIcons = await Promise.all(rows.map(attachFallbackIcon));
+    let rowsFinal = rowsWithIcons;
+
+    rowsFinal = await attachMarketCapFallbackBatch(rowsFinal, capMap, exchange);
+
+    const wsHealth = wsHealthFor(exchange);
 
     const payload = {
       ok: true,
-      data,
-      ts,
-      meta: { top, outLimit, interval, klineLimit, concurrency, ttlSec, minVol, includeStables },
+      exchange,
+      tf,
+      data: rowsFinal,
+      ts: Date.now(),
+      mode: wsHealth?.connected ? ("klines-ws" as const) : ("klines" as const),
+      rejects,
+      klineCandidates,
+      candidatePool,
+      minVol,
+      candleSpike,
+      candleSpikeLimit,
+      spikeIlliquidFilter,
+      spikeMinSmaQuote,
+      ws: wsHealth,
+      degraded,
+      degradeReason,
+      computedBy: {
+        klines: computedKlines,
+        tickerFallback: computedTickerFallback,
+        wsUsed,
+        rejected: rejects,
+      },
     };
 
-    cache = { key: cacheKey, ts, payload };
+    hotCache.set(cacheKey, payload, ttlMs);
+    return payload;
+  })();
 
-    return NextResponse.json(payload, {
-      status: 200,
-      headers: { "Cache-Control": `public, max-age=${ttlSec}`, "X-Cache": "MISS" },
-    });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    // чтобы UI не краснел — можно вернуть status 200, но пока оставим 500 для честности
-    return NextResponse.json({ ok: false, data: [], ts, error: msg }, { status: 500 });
+  hotInFlight.set(cacheKey, p);
+
+  try {
+    const out = await p;
+    return NextResponse.json(withLiveWs({ ...out, cache: { hit: false, ttlMs } }, exchange));
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: String(e?.message ?? e), ts: Date.now() }, { status: 500 });
   }
 }

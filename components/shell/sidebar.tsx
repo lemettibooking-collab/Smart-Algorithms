@@ -1,0 +1,82 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import Image from "next/image";
+
+const nav = [
+    { href: "/hot", label: "Hot Scanner" },
+    { href: "/alerts", label: "Alerts Table" }, // ← добавили
+    { href: "/terminal", label: "Trading Terminal" },
+    { href: "/bots", label: "Trading Bots" },
+];
+
+export default function Sidebar() {
+    const pathname = usePathname();
+
+    return (
+        <aside className="w-[260px] shrink-0">
+            <div className="rounded-2xl border border-white/10 bg-[rgb(var(--bg-1))] p-5">
+                <div className="flex items-center gap-3">
+                    {/* LOGO */}
+                    <div className="relative h-10 w-10 overflow-hidden rounded-xl bg-white/3 ring-1 ring-white/10">
+                        <div className="pointer-events-none absolute -top-4 left-2 h-8 w-8 rounded-full bg-white/10 blur-xl" />
+                        <Image
+                            src="/brand/logo.png"
+                            alt="Smart Algorithms"
+                            fill
+                            sizes="40px"
+                            className="object-contain p-0.5"
+                            priority
+                        />
+                    </div>
+
+                    {/* Title */}
+                    <div className="flex h-10 items-center">
+                        <div
+                            className="text-base font-semibold leading-none text-white/92"
+                            style={{
+                                // тонкая "обводка" + мягкий неон в цвет accent
+                                textShadow: [
+                                    "0 0 0.6px rgba(53,224,201,0.85)", // edge (stroke-like)
+                                    "0 0 10px rgba(53,224,201,0.20)",  // glow
+                                ].join(", "),
+                            }}
+                        >
+                            Smart Algorithms
+                        </div>
+                    </div>
+                </div>
+
+                <div className="mt-6 space-y-1">
+                    {nav.map((i) => {
+                        const active = pathname === i.href;
+                        return (
+                            <Link
+                                key={i.href}
+                                href={i.href}
+                                className={[
+                                    "flex items-center justify-between rounded-xl px-3 py-2 text-sm transition",
+                                    active
+                                        ? "bg-white/6 text-white/90 ring-1 ring-[rgba(var(--accent),0.25)]"
+                                        : "text-white/70 hover:bg-white/5 hover:text-white/90",
+                                ].join(" ")}
+                            >
+                                <span>{i.label}</span>
+                                {active ? <span className="h-2 w-2 rounded-full bg-[rgb(var(--accent))]" /> : null}
+                            </Link>
+                        );
+                    })}
+                </div>
+
+                <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/60">
+                    <div className="font-medium text-white/80">Status</div>
+                    <div className="mt-1 flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                        <span>Live (WS)</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    );
+}

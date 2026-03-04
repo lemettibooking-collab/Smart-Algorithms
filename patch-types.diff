@@ -1,0 +1,88 @@
+diff --git a/lib/hot-types.ts b/lib/hot-types.ts
+new file mode 100644
+index 0000000..3e6a8b1
+--- /dev/null
++++ b/lib/hot-types.ts
+@@ -0,0 +1,38 @@
++import type { KlineInterval } from "@/lib/binance";
++import type { SymbolMetrics } from "@/lib/metrics";
++
++export type HotSymbol = {
++  symbol: string;
++  price: number;
++  changePercent: number; // 24h percent from ticker
++  volume: string; // compact quote volume string, e.g. "84.1M"
++  signal: string; // Watch / Momentum / High Volume / Big Move
++  score: number; // scanner score (higher = hotter)
++  interval: KlineInterval;
++  metrics: SymbolMetrics | null;
++  quoteVolume?: number; // raw number (optional, if API provides it)
++};
++
++export type HotResponse = {
++  ok: boolean;
++  data: HotSymbol[];
++  ts: number;
++  error?: string;
++  meta?: Record<string, unknown>;
++};
+diff --git a/app/hot/page.tsx b/app/hot/page.tsx
+index 2c8f0c1..3c1b77a 100644
+--- a/app/hot/page.tsx
++++ b/app/hot/page.tsx
+@@ -1,26 +1,26 @@
+ import { HotClient } from "@/components/hot-client";
+-import type { HotSymbol } from "@/lib/mock-data";
++import type { HotResponse } from "@/lib/hot-types";
+ 
+-type HotResponse = {
+-  ok: boolean;
+-  data: HotSymbol[];
+-  ts: number;
+-};
+-
+ export default async function HotPage() {
+-  const res = await fetch("http://localhost:3000/api/hot", {
+-    cache: "no-store",
+-  });
+-
+-  const json = (await res.json()) as HotResponse;
++  const res = await fetch("/api/hot", { cache: "no-store" });
++  const json = (await res.json()) as HotResponse;
+ 
+   return (
+     <main className="space-y-3">
+       <h2 className="text-lg font-semibold">Hot symbols</h2>
+-      <p className="text-sm text-slate-400">
+-        Demo feed with mock data. Replace with your real scanner API when 
+-ready.
+-      </p>
++      {!json.ok ? (
++        <p className="text-sm text-rose-400">
++          API error: {json.error ?? "Unknown error"}
++        </p>
++      ) : (
++        <p className="text-sm text-slate-400">
++          Scanner feed (sorted by score). Updated:{" "}
++          {new Date(json.ts).toLocaleTimeString()}
++        </p>
++      )}
+ 
+       <HotClient initialRows={json?.data ?? []} />
+     </main>
+   );
+ }
+diff --git a/components/hot-table.tsx b/components/hot-table.tsx
+index 9a3c2a1..c468e9b 100644
+--- a/components/hot-table.tsx
++++ b/components/hot-table.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import Link from "next/link";
+-import type { HotSymbol } from "@/lib/mock-data";
++import type { HotSymbol } from "@/lib/hot-types";
+ 
+ type SortKey = "symbol" | "price" | "changePercent" | "volume" | "signal";
+ type SortDir = "asc" | "desc";
+

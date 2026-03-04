@@ -1,170 +1,351 @@
 "use client";
 
-import Link from "next/link";
-import type { HotSymbol } from "@/lib/hot-types";
+import { useEffect, useMemo, useState } from "react";
+import type { HotSymbol } from "@/components/hot-client";
+import Sparkline from "@/components/sparkline";
 
-type SortKey =
-  | "score"
-  | "symbol"
-  | "price"
-  | "changePercent"
-  | "volume"
-  | "volumeSpike"
-  | "signal";
-type SortDir = "asc" | "desc";
+type Exchange = "binance" | "mexc";
 
-type HotTableProps = {
-  rows: HotSymbol[];
+function baseAssetFromSymbol(pair: string) {
+  const s = String(pair ?? "").toUpperCase();
+  const quotes = ["USDT", "BUSD", "USDC", "FDUSD", "TUSD", "BTC", "ETH", "BNB", "EUR", "TRY"];
+  for (const q of quotes) {
+    if (s.endsWith(q) && s.length > q.length) return s.slice(0, -q.length);
+  }
+  return s;
+}
 
-  // опционально (если захочешь кликабельные заголовки)
-  onSort?: (key: SortKey) => void;
-  sortKey?: SortKey;
-  sortDir?: SortDir;
-};
+function trimZeros(s: string) {
+  if (!s.includes(".")) return s;
+  return s.replace(/\.?0+$/, "");
+}
 
-function SortHeader({
-  label,
-  k,
-  activeKey,
-  dir,
-  onSort,
+function fmtPrice(n: number) {
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return "0";
+
+  let out: string;
+  if (n >= 1000) out = n.toFixed(2);
+  else if (n >= 1) out = n.toFixed(4);
+  else if (n >= 0.01) out = n.toFixed(6);
+  else if (n >= 0.0001) out = n.toFixed(8);
+  else out = n.toFixed(10);
+
+  return trimZeros(out);
+}
+
+function fmtPct(n: number) {
+  if (!Number.isFinite(n)) return "—";
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}%`;
+}
+
+function fmtSpike(v: number | null | undefined) {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${v.toFixed(2)}x`;
+}
+
+/** Score pill helpers */
+function scoreBarWidth(score: number) {
+  const s = Number.isFinite(score) ? score : 0;
+  const pct = Math.max(0, Math.min(10, s)) / 10;
+  return `${Math.round(pct * 100)}%`;
+}
+
+function scoreGlowClass(score: number) {
+  const s = Number.isFinite(score) ? score : 0;
+  if (s >= 8) return "bg-emerald-400/20 shadow-[0_0_16px_rgba(52,211,153,0.14)]";
+  if (s >= 6) return "bg-sky-400/20 shadow-[0_0_16px_rgba(56,189,248,0.12)]";
+  if (s >= 4) return "bg-amber-400/20 shadow-[0_0_16px_rgba(251,191,36,0.10)]";
+  return "bg-white/10";
+}
+
+/** Neon signal badges */
+function signalBadgeClass(signal: string) {
+  switch (signal) {
+    case "Breakout":
+      return "border-emerald-400/45 bg-emerald-400/14 text-emerald-200 shadow-[0_0_16px_rgba(52,211,153,0.18)]";
+    case "Big Move":
+      return "border-green-400/45 bg-green-400/14 text-green-200 shadow-[0_0_16px_rgba(74,222,128,0.16)]";
+    case "Reversal Up":
+      return "border-teal-400/45 bg-teal-400/14 text-teal-200 shadow-[0_0_16px_rgba(45,212,191,0.16)]";
+    case "Reversal Down":
+      return "border-fuchsia-400/45 bg-fuchsia-400/14 text-fuchsia-200 shadow-[0_0_16px_rgba(232,121,249,0.14)]";
+    case "Dump":
+      return "border-rose-400/45 bg-rose-400/14 text-rose-200 shadow-[0_0_16px_rgba(251,113,133,0.14)]";
+    case "Whale Activity":
+      return "border-amber-400/55 bg-amber-400/14 text-amber-200 shadow-[0_0_16px_rgba(251,191,36,0.14)]";
+    case "Watch":
+      return "border-sky-400/55 bg-sky-400/14 text-sky-200 shadow-[0_0_16px_rgba(56,189,248,0.14)]";
+    case "Calm":
+      return "border-white/10 bg-white/5 text-white/65";
+    default:
+      return "border-white/10 bg-white/5 text-white/65";
+  }
+}
+
+/** fallback НЕ серит сигнал, а лишь приглушает */
+function signalBadgeClassWithSource(signal: string, source?: "klines" | "fallback") {
+  const base = signalBadgeClass(signal);
+  return source === "fallback" ? `${base} opacity-80` : base;
+}
+
+function rowTintClass(signal: string) {
+  switch (signal) {
+    case "Dump":
+      return "bg-rose-400/5";
+    case "Breakout":
+    case "Big Move":
+      return "bg-emerald-400/5";
+    default:
+      return "";
+  }
+}
+
+function intervalFromChangeLabel(changeLabel: string) {
+  const s = String(changeLabel ?? "").trim();
+  if (s === "24h %") return "15m"; // важный фикс
+  if (s.startsWith("Δ ")) return s.slice(2).trim();
+  return "15m";
+}
+
+function CoinLogo({
+  symbol,
+  logoUrl,
+  iconUrl,
+  baseAsset,
 }: {
-  label: string;
-  k: SortKey;
-  activeKey?: SortKey;
-  dir?: SortDir;
-  onSort?: (key: SortKey) => void;
+  symbol: string;
+  logoUrl?: string | null;
+  iconUrl?: string | null;
+  baseAsset?: string | null;
 }) {
-  const isActive = activeKey === k;
+  const base = (baseAsset ?? baseAssetFromSymbol(symbol)).toUpperCase();
+  const cacheKey = `coinlogo:url:${base}`;
 
-  if (!onSort) return <span>{label}</span>;
+  const candidates = useMemo(() => {
+    return [
+      (typeof logoUrl === "string" && logoUrl.trim() ? logoUrl.trim() : ""),
+      (typeof iconUrl === "string" && iconUrl.trim() ? iconUrl.trim() : ""),
+      `https://assets.coincap.io/assets/icons/${base.toLowerCase()}@2x.png`,
+      `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/32/color/${base.toLowerCase()}.png`,
+      `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${base.toLowerCase()}.png`,
+    ].filter(Boolean);
+  }, [logoUrl, iconUrl, base]);
+
+  const [src, setSrc] = useState<string>("");
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached && cached.startsWith("http")) {
+        setSrc(cached);
+        setIdx(0);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    setSrc(candidates[0] || "");
+    setIdx(0);
+  }, [cacheKey, candidates]);
+
+  const onLoad = () => {
+    if (!src) return;
+    try {
+      localStorage.setItem(cacheKey, src);
+    } catch {
+      // ignore
+    }
+  };
+
+  const onError = () => {
+    const next = idx + 1;
+    setIdx(next);
+
+    const nextUrl = candidates[next] || "";
+    if (nextUrl) {
+      setSrc(nextUrl);
+      return;
+    }
+
+    try {
+      localStorage.removeItem(cacheKey);
+    } catch {
+      // ignore
+    }
+    setSrc("");
+  };
 
   return (
-    <button
-      type="button"
-      onClick={() => onSort(k)}
-      className="inline-flex items-center gap-2 hover:text-white"
-      title="Sort"
-    >
-      <span>{label}</span>
-      {isActive ? (
-        <span className="text-slate-400">{dir === "asc" ? "↑" : "↓"}</span>
-      ) : null}
-    </button>
+    <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-white/5">
+      <div className="pointer-events-none absolute -top-3 left-2 h-6 w-6 rounded-full bg-white/10 blur-md" />
+      {src ? (
+        <img
+          src={src}
+          alt={base}
+          className="relative z-10 h-full w-full object-cover"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onLoad={onLoad}
+          onError={onError}
+        />
+      ) : (
+        <div className="relative z-10 flex h-full w-full items-center justify-center">
+          <span className="text-xs font-semibold text-white/70">{base.slice(0, 1)}</span>
+        </div>
+      )}
+    </div>
   );
 }
 
-export function HotTable({ rows, onSort, sortKey, sortDir }: HotTableProps) {
+export function HotTable({
+  rows,
+  changeLabel,
+  exchange = "binance",
+  onRowClick,
+}: {
+  rows: HotSymbol[];
+  changeLabel: string;
+  exchange?: Exchange;
+  onRowClick?: (row: HotSymbol) => void;
+}) {
+  const isTicker = changeLabel === "24h %";
+  const trendInterval = intervalFromChangeLabel(changeLabel);
+
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-800">
-      <table className="min-w-full text-left text-sm">
-        <thead className="bg-slate-900 text-slate-300">
-          <tr>
-            <th className="px-4 py-3">
-              <SortHeader
-                label="Score"
-                k="score"
-                onSort={onSort}
-                activeKey={sortKey}
-                dir={sortDir}
-              />
-            </th>
-            <th className="px-4 py-3">
-              <SortHeader
-                label="Symbol"
-                k="symbol"
-                onSort={onSort}
-                activeKey={sortKey}
-                dir={sortDir}
-              />
-            </th>
-            <th className="px-4 py-3">
-              <SortHeader
-                label="Price"
-                k="price"
-                onSort={onSort}
-                activeKey={sortKey}
-                dir={sortDir}
-              />
-            </th>
-            <th className="px-4 py-3">
-              <SortHeader
-                label="24h %"
-                k="changePercent"
-                onSort={onSort}
-                activeKey={sortKey}
-                dir={sortDir}
-              />
-            </th>
-            <th className="px-4 py-3">
-              <SortHeader
-                label="Volume"
-                k="volume"
-                onSort={onSort}
-                activeKey={sortKey}
-                dir={sortDir}
-              />
-            </th>
-            <th className="px-4 py-3">
-              <SortHeader
-                label="Vol spike"
-                k="volumeSpike"
-                onSort={onSort}
-                activeKey={sortKey}
-                dir={sortDir}
-              />
-            </th>
-            <th className="px-4 py-3">
-              <SortHeader
-                label="Signal"
-                k="signal"
-                onSort={onSort}
-                activeKey={sortKey}
-                dir={sortDir}
-              />
-            </th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {rows.map((row) => (
-            <tr
-              key={row.symbol}
-              className="border-t border-slate-800 hover:bg-slate-900/60"
-            >
-              <td className="px-4 py-3 font-semibold">
-                {Number(row.score ?? 0).toFixed(2)}
-              </td>
-
-              <td className="px-4 py-3 font-medium text-blue-300">
-                <Link href={`/symbol/${row.symbol}`}>{row.symbol}</Link>
-              </td>
-
-              <td className="px-4 py-3">${Number(row.price ?? 0).toFixed(2)}</td>
-
-              <td
-                className={`px-4 py-3 ${(row.changePercent ?? 0) >= 0
-                    ? "text-emerald-400"
-                    : "text-rose-400"
-                  }`}
-              >
-                {(row.changePercent ?? 0) >= 0 ? "+" : ""}
-                {Number(row.changePercent ?? 0).toFixed(2)}%
-              </td>
-
-              <td className="px-4 py-3">{row.volume}</td>
-
-              <td className="px-4 py-3">
-                {row.metrics?.volumeSpike != null
-                  ? `${Number(row.metrics.volumeSpike).toFixed(2)}x`
-                  : "—"}
-              </td>
-
-              <td className="px-4 py-3">{row.signal}</td>
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[rgb(var(--bg-1))]">
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-collapse text-sm text-white/80">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-[rgb(var(--bg-1))]">
+              <th className="px-3 py-3 text-left text-xs font-semibold text-white/60">Score</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-white/60">Symbol</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-white/60">Trend</th>
+              <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">Price</th>
+              <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">{changeLabel}</th>
+              {!isTicker ? (
+                <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">24h %</th>
+              ) : null}
+              <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">Volume (24h)</th>
+              <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">MCap</th>
+              <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">Vol spike</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-white/60">Signal</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+            <tr>
+              <td colSpan={isTicker ? 9 : 10} className="h-px bg-white/10" />
+            </tr>
+          </thead>
+
+          <tbody>
+            {rows.map((r) => {
+              const ch = Number((r as any).changePercent ?? 0);
+              const ch24 = Number((r as any).change24hPercent ?? 0);
+
+              const rowExchange = ((r as any).exchange as Exchange) ?? exchange;
+              const baseAsset = ((r as any).baseAsset as string | null) ?? null;
+
+              return (
+                <tr
+                  key={(r as any).symbol}
+                  onClick={() => onRowClick?.(r)}
+                  className={[
+                    "border-t border-white/5 hover:bg-white/5 transition-colors",
+                    onRowClick ? "cursor-pointer" : "",
+                    rowTintClass((r as any).signal),
+                  ].join(" ")}
+                >
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="relative h-7 w-16 overflow-hidden rounded-full border border-white/10 bg-white/5">
+                        <div
+                          className={["absolute inset-y-0 left-0", scoreGlowClass((r as any).score ?? 0)].join(" ")}
+                          style={{ width: scoreBarWidth((r as any).score ?? 0) }}
+                        />
+                        <div className="relative z-10 flex h-full items-center justify-center text-[11px] font-semibold text-white/80 tabular-nums">
+                          {Number((r as any).score ?? 0).toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-3">
+                      <CoinLogo
+                        symbol={(r as any).symbol}
+                        logoUrl={(r as any).logoUrl}
+                        iconUrl={(r as any).iconUrl}
+                        baseAsset={baseAsset}
+                      />
+                      <div className="min-w-0">
+                        <div className="relative inline-flex items-center">
+                          <span className="font-medium text-white/90 leading-tight">{(r as any).symbol}</span>
+                          {(r as any).source === "fallback" ? (
+                            <span
+                              className="absolute -top-0.5 -right-3.5 flex h-2 w-2 items-center justify-center rounded-full bg-white/5 text-[8px] font-semibold text-white/40"
+                              title="Fallback: candle data unavailable (ticker-based approximation)"
+                            >
+                              i
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td className="px-3 py-3">
+                    <Sparkline symbol={(r as any).symbol} interval={trendInterval} exchange={rowExchange} />
+                  </td>
+
+                  <td className="px-3 py-3 text-right tabular-nums text-white/90">${fmtPrice((r as any).price)}</td>
+
+                  <td
+                    className={[
+                      "px-3 py-3 text-right tabular-nums",
+                      ch > 0 ? "text-emerald-400" : ch < 0 ? "text-rose-400" : "text-white/70",
+                    ].join(" ")}
+                    title={(r as any).changeApprox ? "Approximation (fallback when klines unavailable)" : "Exact (klines + live price)"}
+                  >
+                    {fmtPct(ch)}
+                  </td>
+
+                  {!isTicker ? (
+                    <td
+                      className={[
+                        "px-3 py-3 text-right tabular-nums",
+                        ch24 > 0 ? "text-emerald-400" : ch24 < 0 ? "text-rose-400" : "text-white/70",
+                      ].join(" ")}
+                    >
+                      {fmtPct(ch24)}
+                    </td>
+                  ) : null}
+
+                  <td className="px-3 py-3 text-right tabular-nums text-white/70">{(r as any).volume}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-white/70">{(r as any).marketCap ?? "—"}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-white/70">{fmtSpike((r as any).volSpike)}</td>
+
+                  <td className="px-3 py-3">
+                    <span
+                      className={[
+                        "inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[12px] font-medium backdrop-blur",
+                        "transition-shadow hover:shadow-[0_0_22px_rgba(255,255,255,0.06)]",
+                        signalBadgeClassWithSource((r as any).signal, (r as any).source),
+                      ].join(" ")}
+                      title={(r as any).source === "fallback" ? "Fallback (no candle data)" : undefined}
+                    >
+                      {(r as any).signal}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="pointer-events-none h-6 bg-gradient-to-b from-transparent to-black/10" />
     </div>
   );
 }
