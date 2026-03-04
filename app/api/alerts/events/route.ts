@@ -137,6 +137,28 @@ function mapPayloadToEventRow(payload: Record<string, unknown>): EventRow | null
     return row.eventId ? row : null;
 }
 
+function dbReadLimit(limit: number): number {
+    return Math.min(2000, Math.max(limit * 6, 400));
+}
+
+function readHistoryFromDb(tf: string, limit: number): EventRow[] {
+    const persisted = listEvents({ limit: dbReadLimit(limit) });
+    const history = persisted
+        .map((r) => mapPayloadToEventRow(r.payload))
+        .filter((r): r is EventRow => !!r)
+        .filter((r) => r.tf === tf);
+
+    history.sort((a, b) => {
+        const pa = a.eventType === "signal_change" ? 0 : 1;
+        const pb = b.eventType === "signal_change" ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        if (b.ts !== a.ts) return b.ts - a.ts;
+        return (b.score ?? 0) - (a.score ?? 0);
+    });
+
+    return history.slice(0, limit);
+}
+
 async function safeJson<T>(res: Response): Promise<T | null> {
     try {
         return (await res.json()) as T;
@@ -214,6 +236,8 @@ export async function GET(req: Request) {
 
                 if (signalChanged || scoreJumped) {
                     const eventType = signalChanged ? "signal_change" : "score_jump";
+                    const cooldownMs = Math.max(0, cooldownSec * 1000);
+                    const fallbackBucketMs = signalChanged ? 60_000 : 30_000;
                     const deterministicId = computeEventId({
                         exchange: r.exchange,
                         symbol: r.symbol,
@@ -221,7 +245,7 @@ export async function GET(req: Request) {
                         importantKey: signalChanged
                             ? `signal:${r.signal}`
                             : `scoreBucket:${Math.floor((r.score ?? 0) * 10)}`,
-                        bucketMs: signalChanged ? 60_000 : 30_000,
+                        bucketMs: Math.max(fallbackBucketMs, cooldownMs || 0),
                         ts: now,
                     });
 
@@ -255,24 +279,12 @@ export async function GET(req: Request) {
                 );
             }
 
-            const persisted = listEvents({ limit: Math.min(2000, Math.max(limit * 6, 400)) });
-            const history = persisted
-                .map((r) => mapPayloadToEventRow(r.payload))
-                .filter((r): r is EventRow => !!r)
-                .filter((r) => r.tf === tf);
-
-            history.sort((a, b) => {
-                const pa = a.eventType === "signal_change" ? 0 : 1;
-                const pb = b.eventType === "signal_change" ? 0 : 1;
-                if (pa !== pb) return pa - pb;
-                if (b.ts !== a.ts) return b.ts - a.ts;
-                return (b.score ?? 0) - (a.score ?? 0);
-            });
+            const history = readHistoryFromDb(tf, limit);
 
             const payload = {
                 tf,
                 ts: now,
-                data: history.slice(0, limit),
+                data: history,
                 sources: json.sources ?? null,
                 cache: { hit: false, ttlMs: TTL_MS },
             };
@@ -286,10 +298,11 @@ export async function GET(req: Request) {
                     : typeof e === "string"
                         ? e
                         : "events_failed";
+            const history = readHistoryFromDb(tf, limit);
             const payload = {
                 tf,
                 ts: now,
-                data: [],
+                data: history,
                 error: msg,
                 cache: { hit: false, ttlMs: TTL_MS },
             };
