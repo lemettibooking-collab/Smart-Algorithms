@@ -26,6 +26,8 @@ type SideState = {
 };
 
 type SymbolWalls = { bid?: Wall; ask?: Wall };
+type DepthSnapshot = [DepthLevel[], DepthLevel[]];
+type WallsResponse = { ts: number; data: Record<string, SymbolWalls> };
 
 const BINANCE_BASE = "https://api.binance.com";
 const DEPTH_LIMIT = 100;
@@ -36,8 +38,8 @@ const EATING_DROP_RATIO = 0.9; // >10% drop
 const NEW_HOLD_MS = 10_000;
 const REMOVED_KEEP_MS = 30_000;
 
-const depthCache = new TTLCache<DepthLevel[][]>(2500, 10_000);
-const depthInFlight = new InFlight<DepthLevel[][]>();
+const depthCache = new TTLCache<DepthSnapshot>(2500, 10_000);
+const depthInFlight = new InFlight<DepthSnapshot>();
 const limit = createLimiter(8);
 
 const sideStateMap = new Map<string, SideState>();
@@ -55,7 +57,7 @@ function parseLevels(raw: unknown): DepthLevel[] {
     return out;
 }
 
-async function fetchDepth(symbol: string): Promise<DepthLevel[][]> {
+async function fetchDepth(symbol: string): Promise<DepthSnapshot> {
     const url = `${BINANCE_BASE}/api/v3/depth?symbol=${encodeURIComponent(symbol)}&limit=${DEPTH_LIMIT}`;
     const res = await fetchWithRetry(url, { method: "GET", cache: "no-store" }, { retries: 1 });
     if (!res.ok) throw new Error(`depth failed ${symbol} ${res.status}`);
@@ -66,7 +68,7 @@ async function fetchDepth(symbol: string): Promise<DepthLevel[][]> {
     return [bids, asks];
 }
 
-async function fetchDepthCached(symbol: string): Promise<DepthLevel[][]> {
+async function fetchDepthCached(symbol: string): Promise<DepthSnapshot> {
     const key = `d:${symbol}`;
     const cached = depthCache.get(key);
     if (cached) return cached;
@@ -186,7 +188,7 @@ export async function GET(req: Request) {
     const uniq = Array.from(new Set(rawSymbols)).slice(0, MAX_SYMBOLS);
 
     const data: Record<string, SymbolWalls> = {};
-    if (uniq.length === 0) return NextResponse.json({ ts: Date.now(), data });
+    if (uniq.length === 0) return NextResponse.json<WallsResponse>({ ts: Date.now(), data });
 
     await Promise.all(
         uniq.map(async (symbol) => {
@@ -198,5 +200,5 @@ export async function GET(req: Request) {
         })
     );
 
-    return NextResponse.json({ ts: Date.now(), data });
+    return NextResponse.json<WallsResponse>({ ts: Date.now(), data });
 }
