@@ -72,6 +72,38 @@ type SignalEvent = {
   source?: "klines" | "fallback";
 };
 
+function asRecord(v: unknown): Record<string, unknown> | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  return v as Record<string, unknown>;
+}
+
+function normalizeHotRows(rows: unknown[]): HotSymbol[] {
+  return rows.map((row) => {
+    const rec = asRecord(row);
+    if (!rec) return row as HotSymbol;
+
+    const spikeCandlesNum = Number(rec.spikeCandles);
+    const spikeNeedNum = Number(rec.spikeNeed);
+
+    const spikeCandles = Number.isFinite(spikeCandlesNum) ? spikeCandlesNum : undefined;
+    const spikeNeed = Number.isFinite(spikeNeedNum) ? spikeNeedNum : undefined;
+
+    const newListingRaw = rec.newListing;
+    const newListing = newListingRaw === true || newListingRaw === "true";
+
+    const spikeModeRaw = rec.spikeMode;
+    const spikeMode = spikeModeRaw === "scalp" ? "scalp" : spikeModeRaw === "pulse" ? "pulse" : undefined;
+
+    return {
+      ...(row as HotSymbol),
+      spikeCandles,
+      spikeNeed,
+      newListing,
+      spikeMode,
+    };
+  });
+}
+
 function parseVolume(v: unknown) {
   const s = String(v ?? "").trim().toUpperCase();
   const num = Number(s.replace(/[^0-9.]/g, ""));
@@ -361,7 +393,7 @@ export function HotClient({
         setExchange((prev) => sanitizeExchange(json.exchange, prev));
       }
 
-      const data = json.data ?? [];
+      const data = normalizeHotRows(Array.isArray(json.data) ? json.data : []);
       setRows(data);
       setLastTs(json.ts ?? Date.now());
 

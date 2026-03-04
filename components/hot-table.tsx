@@ -243,7 +243,7 @@ export function HotTable({
             {rows.map((r) => {
               const ch = Number((r as any).changePercent ?? 0);
               const ch24 = Number((r as any).change24hPercent ?? 0);
-              const isNewListing = (r as any).newListing === true;
+              const isNewListing = (r as any).newListing === true || (r as any).newListing === "true";
               const spikeCandles = Number((r as any).spikeCandles ?? 0);
               const spikeNeed = Number((r as any).spikeNeed ?? 0);
               const spikeModeLabel = (r as any).spikeMode === "scalp" ? "Scalp" : "Pulse";
