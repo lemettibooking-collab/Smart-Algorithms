@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Exchange = "binance" | "mexc";
 
@@ -246,6 +246,7 @@ export default function AlertsClient() {
     const [events, setEvents] = useState<EventRow[]>([]);
     const [sources, setSources] = useState<unknown>(null);
     const [err, setErr] = useState<string | null>(null);
+    const eventsRef = useRef<EventRow[]>([]);
 
     function applyFiltersState(values: Partial<FiltersState>) {
         if (typeof values.tf === "string") setTf(values.tf);
@@ -340,25 +341,28 @@ export default function AlertsClient() {
             // Server data is source of truth; local cache is only UX bootstrap.
             setEvents((prev) => {
                 const byKey = new Map<string, EventRow>();
-                const next: EventRow[] = [];
+                const out: EventRow[] = [];
                 for (const ev of incoming) {
+                    if (!isValidEventRow(ev)) continue;
                     const k = eventStableKey(ev);
                     if (byKey.has(k)) continue;
                     byKey.set(k, ev);
-                    next.push(ev);
+                    out.push(ev);
                 }
                 for (const ev of prev) {
                     const k = eventStableKey(ev);
                     if (byKey.has(k)) continue;
                     byKey.set(k, ev);
-                    next.push(ev);
+                    out.push(ev);
                 }
-                const trimmed = next.slice(0, eventsLimit);
+                const trimmed = out.slice(0, eventsLimit);
 
                 if (typeof window !== "undefined") {
-                    const { eventsKey, metaKey } = eventsStorageKeys(tf);
-                    window.localStorage.setItem(eventsKey, JSON.stringify(trimmed));
-                    window.localStorage.setItem(metaKey, JSON.stringify({ tf, updatedAt: Date.now() }));
+                    try {
+                        const { eventsKey, metaKey } = eventsStorageKeys(tf);
+                        window.localStorage.setItem(eventsKey, JSON.stringify(trimmed));
+                        window.localStorage.setItem(metaKey, JSON.stringify({ tf, updatedAt: Date.now() }));
+                    } catch { }
                 }
 
                 return trimmed;
@@ -504,6 +508,10 @@ export default function AlertsClient() {
         return () => clearInterval(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [auto, mode, tableQuery, eventsQuery]);
+
+    useEffect(() => {
+        eventsRef.current = events;
+    }, [events]);
 
     const kpi = useMemo(() => {
         const total = mode === "events" ? events.length : rows.length;
