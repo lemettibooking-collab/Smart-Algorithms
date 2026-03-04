@@ -22,6 +22,7 @@ type AlertRow = {
     change24hPercent: number;
 
     volSpike: number | null;
+    quoteVol24h?: number;
 
     marketCapRaw: number | null;
     marketCap?: string;
@@ -37,6 +38,18 @@ type EventRow = AlertRow & {
     eventType: "signal_change" | "score_jump";
     prevSignal?: string | null;
     prevScore?: number | null;
+};
+
+type Wall = {
+    price: number;
+    notional: number;
+    distancePct: number;
+    status: "NEW" | "HOLD" | "EATING" | "REMOVED";
+};
+
+type WallsResponse = {
+    ts: number;
+    data: Record<string, { bid?: Wall; ask?: Wall }>;
 };
 
 type AlertsResponse = {
@@ -206,10 +219,28 @@ function fmtPrice(x: number) {
     return n.toPrecision(4);
 }
 
+function fmtCompact(n: number | null | undefined) {
+    const v = Number(n ?? 0);
+    if (!Number.isFinite(v) || v <= 0) return "—";
+    if (v >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
+    if (v >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+    if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+    if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+    return v.toFixed(0);
+}
+
 function errMsg(e: unknown) {
     if (e instanceof Error) return e.message;
     if (typeof e === "string") return e;
     return "Failed";
+}
+
+function BinanceMiniIcon({ className }: { className?: string }) {
+    return (
+        <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+            <path fill="currentColor" d="M12 2l3.5 3.5L12 9 8.5 5.5 12 2zm6.5 6.5L22 12l-3.5 3.5L15 12l3.5-3.5zM12 15l3.5 3.5L12 22l-3.5-3.5L12 15zM2 12l3.5-3.5L9 12l-3.5 3.5L2 12zm10-4l4 4-4 4-4-4 4-4z" />
+        </svg>
+    );
 }
 
 export default function AlertsClient() {
@@ -244,6 +275,7 @@ export default function AlertsClient() {
     const [loading, setLoading] = useState(false);
     const [rows, setRows] = useState<AlertRow[]>([]);
     const [events, setEvents] = useState<EventRow[]>([]);
+    const [wallsMap, setWallsMap] = useState<Record<string, { bid?: Wall; ask?: Wall }>>({});
     const [sources, setSources] = useState<unknown>(null);
     const [err, setErr] = useState<string | null>(null);
     const eventsRef = useRef<EventRow[]>([]);
@@ -315,11 +347,31 @@ export default function AlertsClient() {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const j: AlertsResponse = await r.json();
             if (j.error) setErr(j.error);
-            setRows(Array.isArray(j.data) ? j.data : []);
+            const nextRows = Array.isArray(j.data) ? j.data : [];
+            setRows(nextRows);
             setSources(j.sources ?? null);
+
+            const symbols = Array.from(new Set(nextRows.map((x) => String(x.symbol ?? "").trim().toUpperCase()).filter(Boolean))).slice(0, 50);
+            if (symbols.length === 0) {
+                setWallsMap({});
+            } else {
+                try {
+                    const wr = await fetch(`/api/walls?symbols=${encodeURIComponent(symbols.join(","))}`, { cache: "no-store" });
+                    if (wr.ok) {
+                        const wj = (await wr.json()) as WallsResponse;
+                        const data = (typeof wj?.data === "object" && wj?.data !== null ? wj.data : {}) as Record<string, { bid?: Wall; ask?: Wall }>;
+                        setWallsMap(data);
+                    } else {
+                        setWallsMap({});
+                    }
+                } catch {
+                    setWallsMap({});
+                }
+            }
         } catch (e: unknown) {
             setErr(errMsg(e));
             setRows([]);
+            setWallsMap({});
             setSources(null);
         } finally {
             setLoading(false);
@@ -716,6 +768,19 @@ export default function AlertsClient() {
                 >
                     {loading ? "Loading..." : "Refresh"}
                 </button>
+                {mode === "table" ? (
+                    <button
+                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/80 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
+                        onClick={() => {
+                            setRows([]);
+                            setWallsMap({});
+                            setErr(null);
+                        }}
+                        type="button"
+                    >
+                        Clear table
+                    </button>
+                ) : null}
 
                 {err ? <span className="text-sm text-red-400">{err}</span> : null}
 
@@ -791,8 +856,6 @@ export default function AlertsClient() {
                                     <th className="px-4 py-3">Signal</th>
                                     <th className="px-4 py-3">Δ(tf)</th>
                                     <th className="px-4 py-3">24h%</th>
-                                    <th className="px-4 py-3">Price</th>
-                                    <th className="px-4 py-3">Prev</th>
                                 </tr>
                             </thead>
                             <tbody className="text-sm text-white/80 leading-5">
@@ -823,17 +886,11 @@ export default function AlertsClient() {
                                         <td className="px-4 py-3">{r.signal}</td>
                                         <td className="px-4 py-3">{fmtPct(r.changePercent)}</td>
                                         <td className="px-4 py-3">{fmtPct(r.change24hPercent)}</td>
-                                        <td className="px-4 py-3">{fmtPrice(r.price)}</td>
-                                        <td className="px-4 py-3 text-xs text-white/50">
-                                            {r.prevSignal != null || r.prevScore != null
-                                                ? `${r.prevSignal ?? "—"} / ${(r.prevScore ?? 0).toFixed(2)}`
-                                                : "—"}
-                                        </td>
                                     </tr>
                                 ))}
                                 {!events.length && !loading ? (
                                     <tr>
-                                        <td className="p-3 text-sm opacity-70" colSpan={9}>No events yet</td>
+                                        <td className="p-3 text-sm opacity-70" colSpan={7}>No events yet</td>
                                     </tr>
                                 ) : null}
                             </tbody>
@@ -851,11 +908,11 @@ export default function AlertsClient() {
                                     <th className="px-4 py-3">Price</th>
                                     <th className="px-4 py-3">Δ(tf)</th>
                                     <th className="px-4 py-3">24h%</th>
+                                    <th className="px-4 py-3">Vol 24h</th>
+                                    <th className="px-4 py-3">Densities</th>
                                     <th className="px-4 py-3">Score</th>
                                     <th className="px-4 py-3">Signal</th>
                                     <th className="px-4 py-3">VolSpike</th>
-                                    <th className="px-4 py-3">MCap</th>
-                                    <th className="px-4 py-3">Merged</th>
                                 </tr>
                             </thead>
                             <tbody className="text-sm text-white/80 leading-5">
@@ -882,13 +939,44 @@ export default function AlertsClient() {
                                         <td className="px-4 py-3">{fmtPrice(r.price)}</td>
                                         <td className="px-4 py-3">{fmtPct(r.changePercent)}</td>
                                         <td className="px-4 py-3">{fmtPct(r.change24hPercent)}</td>
+                                        <td className="px-4 py-3">{fmtCompact(r.quoteVol24h)}</td>
+                                        <td className="px-4 py-3 text-xs">
+                                            {(() => {
+                                                const w = wallsMap[r.symbol];
+                                                const badge = (status: Wall["status"]) => {
+                                                    if (status === "NEW") return "rounded border border-emerald-400/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300";
+                                                    if (status === "EATING") return "rounded border border-amber-400/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300";
+                                                    if (status === "REMOVED") return "rounded border border-red-400/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300";
+                                                    return "rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] text-white/70";
+                                                };
+                                                if (!w?.bid && !w?.ask) return <span className="text-white/50">—</span>;
+                                                return (
+                                                    <div className="relative space-y-1 pl-6">
+                                                        <span
+                                                            className="absolute left-1 top-1 inline-flex h-4 w-4 items-center justify-center rounded border border-white/10 bg-white/5"
+                                                            title="Order book walls from Binance"
+                                                        >
+                                                            <BinanceMiniIcon className="h-3 w-3 text-yellow-400/90" />
+                                                        </span>
+                                                        {w.bid ? (
+                                                            <div className="flex items-center gap-1">
+                                                                <span>BID {fmtCompact(w.bid.notional)} @ -{w.bid.distancePct.toFixed(2)}%</span>
+                                                                <span className={badge(w.bid.status)}>{w.bid.status}</span>
+                                                            </div>
+                                                        ) : null}
+                                                        {w.ask ? (
+                                                            <div className="flex items-center gap-1">
+                                                                <span>ASK {fmtCompact(w.ask.notional)} @ +{w.ask.distancePct.toFixed(2)}%</span>
+                                                                <span className={badge(w.ask.status)}>{w.ask.status}</span>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </td>
                                         <td className="px-4 py-3">{(r.score ?? 0).toFixed(2)}</td>
                                         <td className="px-4 py-3">{r.signal}</td>
                                         <td className="px-4 py-3">{r.volSpike == null ? "—" : `${r.volSpike.toFixed(2)}x`}</td>
-                                        <td className="px-4 py-3">{r.marketCap ?? (r.marketCapRaw === null ? "—" : String(r.marketCapRaw))}</td>
-                                        <td className="px-4 py-3 text-xs text-white/50">
-                                            {r.mergedFrom?.length ? r.mergedFrom.map((x) => `${x.exchange}:${x.symbol}`).join(", ") : "—"}
-                                        </td>
                                     </tr>
                                 ))}
                                 {!rows.length && !loading ? (

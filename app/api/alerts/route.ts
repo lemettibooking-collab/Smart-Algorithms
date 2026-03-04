@@ -18,6 +18,10 @@ type HotRow = {
     change24hPercent?: number;
 
     volSpike?: number | null;
+    quoteVol24h?: number;
+    quoteVolume24h?: number;
+    volumeQuote24h?: number;
+    volumeRaw?: number;
 
     score?: number;
     signal?: string;
@@ -56,6 +60,7 @@ type AlertRow = {
     change24hPercent: number;
 
     volSpike: number | null;
+    quoteVol24h?: number;
 
     marketCapRaw: number | null;
     marketCap?: string;
@@ -134,6 +139,10 @@ function toAlertRow(row: HotRow, tf: string, ts: number): AlertRow {
             : Number.isFinite(Number(row.marketCapRaw))
                 ? Number(row.marketCapRaw)
                 : null;
+    const quoteVol24hRaw = Number(
+        row.quoteVol24h ?? row.quoteVolume24h ?? row.volumeQuote24h ?? row.volumeRaw ?? Number.NaN
+    );
+    const quoteVol24h = Number.isFinite(quoteVol24hRaw) && quoteVol24hRaw > 0 ? quoteVol24hRaw : undefined;
 
     const baseAsset = String(row.baseAsset ?? "").trim().toUpperCase();
     const bucketTs = bucketTsForTf(ts, tf);
@@ -153,6 +162,7 @@ function toAlertRow(row: HotRow, tf: string, ts: number): AlertRow {
         changePercent,
         change24hPercent,
         volSpike,
+        quoteVol24h,
         marketCapRaw,
         marketCap: row.marketCap,
         logoUrl: row.logoUrl ?? null,
