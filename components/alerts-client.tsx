@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type Exchange = "binance" | "mexc";
 
 type AlertRow = {
+    id?: string;
+    bucketTs?: number;
     ts: number;
     tf: string;
 
@@ -31,6 +33,7 @@ type AlertRow = {
 };
 
 type EventRow = AlertRow & {
+    eventId?: string;
     eventType: "signal_change" | "score_jump";
     prevSignal?: string | null;
     prevScore?: number | null;
@@ -40,7 +43,7 @@ type AlertsResponse = {
     tf: string;
     ts: number;
     data: AlertRow[];
-    sources?: any;
+    sources?: unknown;
     error?: string;
 };
 
@@ -48,7 +51,7 @@ type EventsResponse = {
     tf: string;
     ts: number;
     data: EventRow[];
-    sources?: any;
+    sources?: unknown;
     error?: string;
 };
 
@@ -70,6 +73,12 @@ function fmtPrice(x: number) {
     if (n >= 1000) return n.toFixed(2);
     if (n >= 1) return n.toFixed(4);
     return n.toPrecision(4);
+}
+
+function errMsg(e: unknown) {
+    if (e instanceof Error) return e.message;
+    if (typeof e === "string") return e;
+    return "Failed";
 }
 
 export default function AlertsClient() {
@@ -102,7 +111,7 @@ export default function AlertsClient() {
     const [loading, setLoading] = useState(false);
     const [rows, setRows] = useState<AlertRow[]>([]);
     const [events, setEvents] = useState<EventRow[]>([]);
-    const [sources, setSources] = useState<any>(null);
+    const [sources, setSources] = useState<unknown>(null);
     const [err, setErr] = useState<string | null>(null);
 
     const seenEventKeys = useRef<Set<string>>(new Set());
@@ -151,8 +160,8 @@ export default function AlertsClient() {
             if (j.error) setErr(j.error);
             setRows(Array.isArray(j.data) ? j.data : []);
             setSources(j.sources ?? null);
-        } catch (e: any) {
-            setErr(e?.message ?? "Failed");
+        } catch (e: unknown) {
+            setErr(errMsg(e));
             setRows([]);
             setSources(null);
         } finally {
@@ -178,7 +187,7 @@ export default function AlertsClient() {
 
                 for (const ev of incoming) {
                     // уникальность события: ts + baseAsset + signal + eventType
-                    const k = `${ev.ts}:${ev.tf}:${ev.baseAsset}:${ev.eventType}:${ev.signal}:${ev.score.toFixed(2)}`;
+                    const k = ev.eventId ?? `${ev.ts}:${ev.tf}:${ev.baseAsset}:${ev.eventType}:${ev.signal}:${ev.score.toFixed(2)}`;
                     if (seenEventKeys.current.has(k)) continue;
                     seenEventKeys.current.add(k);
                     next.unshift(ev);
@@ -187,8 +196,8 @@ export default function AlertsClient() {
                 // trim до eventsLimit (по умолчанию 80)
                 return next.slice(0, eventsLimit);
             });
-        } catch (e: any) {
-            setErr(e?.message ?? "Failed");
+        } catch (e: unknown) {
+            setErr(errMsg(e));
             setSources(null);
         } finally {
             setLoading(false);
@@ -214,7 +223,7 @@ export default function AlertsClient() {
 
     useEffect(() => {
         if (!auto) return;
-        const id = setInterval(() => refresh(), 1500);
+        const id = setInterval(() => refresh(), 5000);
         return () => clearInterval(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [auto, mode, tableQuery, eventsQuery]);
@@ -222,10 +231,13 @@ export default function AlertsClient() {
     const kpi = useMemo(() => {
         const total = mode === "events" ? events.length : rows.length;
         const nonCalm = (mode === "events" ? events : rows).filter((r) => String(r.signal).toLowerCase() !== "calm").length;
-        const degradedAny = !!(sources?.binance?.degraded || sources?.mexc?.degraded);
+        const src = (typeof sources === "object" && sources !== null ? sources : null) as Record<string, unknown> | null;
+        const b = (typeof src?.binance === "object" && src?.binance !== null ? src.binance : null) as Record<string, unknown> | null;
+        const m = (typeof src?.mexc === "object" && src?.mexc !== null ? src.mexc : null) as Record<string, unknown> | null;
+        const degradedAny = !!(b?.degraded || m?.degraded);
 
-        const wsB = sources?.binance?.ws;
-        const wsM = sources?.mexc?.ws;
+        const wsB = b?.ws;
+        const wsM = m?.ws;
 
         return { total, nonCalm, degradedAny, wsB, wsM };
     }, [mode, events, rows, sources]);
@@ -442,8 +454,8 @@ export default function AlertsClient() {
                 <div className="rounded-xl border border-white/10 p-3">
                     <div className="text-xs opacity-70">WS Health</div>
                     <div className="text-sm">
-                        <div>Binance: {kpi.wsB?.connected ? "OK" : "—"}</div>
-                        <div>MEXC: {kpi.wsM?.connected ? "OK" : "—"}</div>
+                        <div>Binance: {((kpi.wsB as Record<string, unknown> | null)?.connected) ? "OK" : "—"}</div>
+                        <div>MEXC: {((kpi.wsM as Record<string, unknown> | null)?.connected) ? "OK" : "—"}</div>
                     </div>
                 </div>
             </div>
@@ -468,7 +480,7 @@ export default function AlertsClient() {
                             </thead>
                             <tbody>
                                 {events.map((r, idx) => (
-                                    <tr key={`${idx}:${r.ts}:${r.baseAsset}`} className="border-t border-white/5">
+                                    <tr key={r.eventId ?? `${idx}:${r.ts}:${r.baseAsset}`} className="border-t border-white/5">
                                         <td className="p-2 text-xs opacity-80">
                                             {r.eventType === "signal_change" ? "Signal" : "Score"}
                                         </td>
@@ -531,7 +543,7 @@ export default function AlertsClient() {
                             </thead>
                             <tbody>
                                 {rows.map((r) => (
-                                    <tr key={`${r.baseAsset}:${r.exchange}:${r.symbol}`} className="border-t border-white/5">
+                                    <tr key={r.id ?? `${r.baseAsset}:${r.exchange}:${r.symbol}`} className="border-t border-white/5">
                                         <td className="p-2">
                                             <div className="flex items-center gap-2">
                                                 {(r.logoUrl || r.iconUrl) ? (
@@ -555,7 +567,7 @@ export default function AlertsClient() {
                                         <td className="p-2">{fmtPct(r.change24hPercent)}</td>
                                         <td className="p-2">{(r.score ?? 0).toFixed(2)}</td>
                                         <td className="p-2">{r.signal}</td>
-                                        <td className="p-2">{r.volSpike === null ? "—" : r.volSpike.toFixed(2)}</td>
+                                        <td className="p-2">{r.volSpike == null ? "—" : `${r.volSpike.toFixed(2)}x`}</td>
                                         <td className="p-2">{r.marketCap ?? (r.marketCapRaw === null ? "—" : String(r.marketCapRaw))}</td>
                                         <td className="p-2 text-xs opacity-70">
                                             {r.mergedFrom?.length ? r.mergedFrom.map((x) => `${x.exchange}:${x.symbol}`).join(", ") : "—"}

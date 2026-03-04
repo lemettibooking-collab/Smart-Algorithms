@@ -7,6 +7,8 @@ export const runtime = "nodejs";
 type Exchange = "binance" | "mexc";
 
 type AlertRow = {
+    id?: string;
+    bucketTs?: number;
     ts: number;
     tf: string;
 
@@ -36,19 +38,29 @@ type AlertsResp = {
     tf: string;
     ts: number;
     data: AlertRow[];
-    sources?: any;
+    sources?: unknown;
     error?: string;
 };
 
 type EventRow = AlertRow & {
+    eventId: string;
     eventType: "signal_change" | "score_jump";
     prevSignal?: string | null;
     prevScore?: number | null;
 };
 
-const TTL_MS = 800;
-const eventsCache = new TTLCache<any>(TTL_MS, 2000);
-const eventsInFlight = new InFlight<any>();
+type EventsPayload = {
+    tf: string;
+    ts: number;
+    data: EventRow[];
+    sources?: unknown;
+    error?: string;
+    cache: { hit: boolean; ttlMs: number };
+};
+
+const TTL_MS = 3000;
+const eventsCache = new TTLCache<EventsPayload>(TTL_MS, 2000);
+const eventsInFlight = new InFlight<EventsPayload>();
 
 type LastState = { signal: string; score: number; ts: number };
 const lastByKey = new TTLCache<LastState>(1000 * 60 * 60, 50000); // 1h
@@ -58,7 +70,7 @@ function clamp(n: number, a: number, b: number) {
 }
 
 function keyOf(r: AlertRow) {
-    return `${r.tf}:${r.baseAsset}`; // baseAsset дедупнут на /api/alerts
+    return r.id ?? `${r.tf}:${r.baseAsset}`;
 }
 
 async function safeJson<T>(res: Response): Promise<T | null> {
@@ -78,18 +90,18 @@ export async function GET(req: Request) {
     const scoreJump = Number(url.searchParams.get("scoreJump") ?? "1") || 1; // +1.0
     const cooldownSec = clamp(Number(url.searchParams.get("cooldownSec") ?? "90") || 90, 0, 3600);
 
-    // прокидываем фильтры в /api/alerts (табличный агрегатор)
+    // forward filters to /api/alerts (table aggregator)
     const forward = new URLSearchParams(url.searchParams);
     forward.set("tf", tf);
-    forward.set("dedupe", "1"); // для событий всегда дедуп
+    forward.set("dedupe", "1"); // events are always deduped
     forward.set("sort", forward.get("sort") ?? "score");
 
-    // база берём больше, чтобы не пропускать события
+    // take a larger base to avoid missing events
     const baseLimit = clamp(Number(forward.get("baseLimit") ?? "220") || 220, 80, 300);
     forward.set("limit", String(baseLimit));
     forward.delete("baseLimit");
 
-    // служебные параметры events не должны идти в /api/alerts
+    // events-only params must not be forwarded to /api/alerts
     forward.delete("scoreJump");
     forward.delete("cooldownSec");
 
@@ -126,7 +138,7 @@ export async function GET(req: Request) {
 
                 const prev = lastByKey.get(k);
 
-                // первое появление — не эмитим событие
+                // first appearance: do not emit an event
                 if (!prev) {
                     lastByKey.set(k, { signal: r.signal, score: r.score, ts: now }, 1000 * 60 * 60);
                     continue;
@@ -140,6 +152,7 @@ export async function GET(req: Request) {
                     const eventType = signalChanged ? "signal_change" : "score_jump";
                     out.push({
                         ...r,
+                        eventId: `${r.id ?? k}:${eventType}:${r.signal}:${Math.round((r.score ?? 0) * 100)}`,
                         eventType,
                         prevSignal: prev.signal ?? null,
                         prevScore: prev.score ?? null,
@@ -153,7 +166,7 @@ export async function GET(req: Request) {
                 lastByKey.set(k, { signal: r.signal, score: r.score, ts: now }, 1000 * 60 * 60);
             }
 
-            // приоритет: смена сигнала выше, потом score
+            // priority: signal changes first, then score
             out.sort((a, b) => {
                 const pa = a.eventType === "signal_change" ? 0 : 1;
                 const pb = b.eventType === "signal_change" ? 0 : 1;
@@ -171,12 +184,18 @@ export async function GET(req: Request) {
 
             eventsCache.set(cacheKey, payload, TTL_MS);
             return payload;
-        } catch (e: any) {
+        } catch (e: unknown) {
+            const msg =
+                e instanceof Error
+                    ? e.message
+                    : typeof e === "string"
+                        ? e
+                        : "events_failed";
             const payload = {
                 tf,
                 ts: now,
                 data: [],
-                error: String(e?.message ?? e ?? "events_failed"),
+                error: msg,
                 cache: { hit: false, ttlMs: TTL_MS },
             };
             eventsCache.set(cacheKey, payload, 400);
