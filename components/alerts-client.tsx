@@ -235,6 +235,14 @@ function errMsg(e: unknown) {
     return "Failed";
 }
 
+function BinanceMiniIcon({ className }: { className?: string }) {
+    return (
+        <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+            <path fill="currentColor" d="M12 2l3.5 3.5L12 9 8.5 5.5 12 2zm6.5 6.5L22 12l-3.5 3.5L15 12l3.5-3.5zM12 15l3.5 3.5L12 22l-3.5-3.5L12 15zM2 12l3.5-3.5L9 12l-3.5 3.5L2 12zm10-4l4 4-4 4-4-4 4-4z" />
+        </svg>
+    );
+}
+
 export default function AlertsClient() {
     const [mode, setMode] = useState<Mode>("table");
 
@@ -943,7 +951,13 @@ export default function AlertsClient() {
                                                 };
                                                 if (!w?.bid && !w?.ask) return <span className="text-white/50">—</span>;
                                                 return (
-                                                    <div className="space-y-1">
+                                                    <div className="relative space-y-1 pl-6">
+                                                        <span
+                                                            className="absolute left-1 top-1 inline-flex h-4 w-4 items-center justify-center rounded border border-white/10 bg-white/5"
+                                                            title="Order book walls from Binance"
+                                                        >
+                                                            <BinanceMiniIcon className="h-3 w-3 text-yellow-400/90" />
+                                                        </span>
                                                         {w.bid ? (
                                                             <div className="flex items-center gap-1">
                                                                 <span>BID {fmtCompact(w.bid.notional)} @ -{w.bid.distancePct.toFixed(2)}%</span>
