@@ -60,6 +60,115 @@ type SignalFilter = (typeof SIGNALS)[number];
 
 type SortBy = "score" | "change" | "change24h" | "spike";
 type Mode = "table" | "events";
+type AlertsPresetId = "conservative" | "balanced" | "scalp";
+type SignalToggleKey = "whale" | "bigMove" | "dump" | "breakout" | "reversal" | "watch";
+type SignalToggles = Record<SignalToggleKey, boolean>;
+type FiltersState = {
+    tf: string;
+    includeCalm: boolean;
+    onlyStrong: boolean;
+    strongScore: number;
+    minScore: number;
+    keep: number;
+    scoreJump: number;
+    cooldownSec: number;
+    signalToggles: SignalToggles;
+    limit: number;
+    dedupe: boolean;
+    sortBy: SortBy;
+};
+type AlertsPreset = {
+    id: AlertsPresetId;
+    label: string;
+    values: Partial<FiltersState>;
+};
+
+const PRESET_ID_KEY = "alerts:presetId";
+const FILTERS_KEY = "alerts:filters";
+const DEFAULT_PRESET_ID: AlertsPresetId = "balanced";
+
+const ALERTS_PRESETS: AlertsPreset[] = [
+    {
+        id: "conservative",
+        label: "Conservative",
+        values: {
+            tf: "1h",
+            includeCalm: false,
+            onlyStrong: true,
+            strongScore: 6,
+            minScore: 5,
+            keep: 50,
+            scoreJump: 2,
+            cooldownSec: 180,
+            signalToggles: { whale: false, bigMove: true, dump: true, breakout: true, reversal: true, watch: false },
+        },
+    },
+    {
+        id: "balanced",
+        label: "Balanced",
+        values: {
+            tf: "15m",
+            includeCalm: false,
+            onlyStrong: true,
+            strongScore: 4,
+            minScore: 3,
+            keep: 80,
+            scoreJump: 1,
+            cooldownSec: 90,
+            signalToggles: { whale: true, bigMove: true, dump: true, breakout: true, reversal: true, watch: false },
+        },
+    },
+    {
+        id: "scalp",
+        label: "Scalp",
+        values: {
+            tf: "5m",
+            includeCalm: false,
+            onlyStrong: false,
+            strongScore: 4,
+            minScore: 2,
+            keep: 120,
+            scoreJump: 0.5,
+            cooldownSec: 60,
+            signalToggles: { whale: true, bigMove: true, dump: false, breakout: true, reversal: true, watch: false },
+        },
+    },
+];
+
+function isPresetId(v: unknown): v is AlertsPresetId {
+    return v === "conservative" || v === "balanced" || v === "scalp";
+}
+
+function getPresetById(id: AlertsPresetId) {
+    return ALERTS_PRESETS.find((p) => p.id === id) ?? ALERTS_PRESETS.find((p) => p.id === DEFAULT_PRESET_ID)!;
+}
+
+function signalFilterToToggles(signalFilter: SignalFilter[]): SignalToggles {
+    const set = new Set(signalFilter);
+    return {
+        whale: set.has("Whale Activity"),
+        bigMove: set.has("Big Move"),
+        dump: set.has("Dump"),
+        breakout: set.has("Breakout"),
+        reversal: set.has("Reversal"),
+        watch: set.has("Watch"),
+    };
+}
+
+function togglesToSignalFilter(toggles: SignalToggles): SignalFilter[] {
+    const out: SignalFilter[] = [];
+    if (toggles.watch) out.push("Watch");
+    if (toggles.whale) out.push("Whale Activity");
+    if (toggles.bigMove) out.push("Big Move");
+    if (toggles.dump) out.push("Dump");
+    if (toggles.breakout) out.push("Breakout");
+    if (toggles.reversal) out.push("Reversal");
+    return out;
+}
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+    return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
+}
 
 function fmtPct(x: number) {
     const n = Number(x ?? 0) || 0;
@@ -102,6 +211,8 @@ export default function AlertsClient() {
 
     // shared filter
     const [signalFilter, setSignalFilter] = useState<SignalFilter[]>([]);
+    const [selectedPresetId, setSelectedPresetId] = useState<AlertsPresetId>(DEFAULT_PRESET_ID);
+    const [pendingPresetId, setPendingPresetId] = useState<AlertsPresetId>(DEFAULT_PRESET_ID);
 
     // events controls
     const [eventsLimit, setEventsLimit] = useState(80);
@@ -115,6 +226,31 @@ export default function AlertsClient() {
     const [err, setErr] = useState<string | null>(null);
 
     const seenEventKeys = useRef<Set<string>>(new Set());
+
+    function applyFiltersState(values: Partial<FiltersState>) {
+        if (typeof values.tf === "string") setTf(values.tf);
+        if (typeof values.includeCalm === "boolean") setIncludeCalm(values.includeCalm);
+        if (typeof values.onlyStrong === "boolean") setOnlyStrong(values.onlyStrong);
+        if (typeof values.strongScore === "number" && Number.isFinite(values.strongScore)) setStrongScore(values.strongScore);
+        if (typeof values.minScore === "number" && Number.isFinite(values.minScore)) setMinScore(values.minScore);
+        if (typeof values.keep === "number" && Number.isFinite(values.keep)) setEventsLimit(values.keep);
+        if (typeof values.scoreJump === "number" && Number.isFinite(values.scoreJump)) setScoreJump(values.scoreJump);
+        if (typeof values.cooldownSec === "number" && Number.isFinite(values.cooldownSec)) setCooldownSec(values.cooldownSec);
+        if (typeof values.limit === "number" && Number.isFinite(values.limit)) setLimit(values.limit);
+        if (typeof values.dedupe === "boolean") setDedupe(values.dedupe);
+        if (values.sortBy === "score" || values.sortBy === "change" || values.sortBy === "change24h" || values.sortBy === "spike") {
+            setSortBy(values.sortBy);
+        }
+        if (values.signalToggles) {
+            setSignalFilter(togglesToSignalFilter(values.signalToggles));
+        }
+    }
+
+    function applyPresetById(id: AlertsPresetId) {
+        const preset = getPresetById(id);
+        applyFiltersState(preset.values);
+        setSelectedPresetId(id);
+    }
 
     function toggleSignal(s: SignalFilter) {
         setSignalFilter((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
@@ -215,6 +351,86 @@ export default function AlertsClient() {
     }
 
     useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const storedPresetRaw = window.localStorage.getItem(PRESET_ID_KEY);
+        const storedPreset = isPresetId(storedPresetRaw) ? storedPresetRaw : DEFAULT_PRESET_ID;
+        setSelectedPresetId(storedPreset);
+        setPendingPresetId(storedPreset);
+
+        const rawFilters = window.localStorage.getItem(FILTERS_KEY);
+        if (!rawFilters) {
+            applyPresetById(DEFAULT_PRESET_ID);
+            setPendingPresetId(DEFAULT_PRESET_ID);
+            window.localStorage.setItem(PRESET_ID_KEY, DEFAULT_PRESET_ID);
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(rawFilters) as unknown;
+            const o = asRecord(parsed);
+            if (!o) {
+                applyPresetById(DEFAULT_PRESET_ID);
+                setPendingPresetId(DEFAULT_PRESET_ID);
+                window.localStorage.setItem(PRESET_ID_KEY, DEFAULT_PRESET_ID);
+                return;
+            }
+
+            const st: Partial<FiltersState> = {};
+            if (typeof o.tf === "string") st.tf = o.tf;
+            if (typeof o.includeCalm === "boolean") st.includeCalm = o.includeCalm;
+            if (typeof o.onlyStrong === "boolean") st.onlyStrong = o.onlyStrong;
+            if (typeof o.strongScore === "number") st.strongScore = o.strongScore;
+            if (typeof o.minScore === "number") st.minScore = o.minScore;
+            if (typeof o.keep === "number") st.keep = o.keep;
+            if (typeof o.scoreJump === "number") st.scoreJump = o.scoreJump;
+            if (typeof o.cooldownSec === "number") st.cooldownSec = o.cooldownSec;
+            if (typeof o.limit === "number") st.limit = o.limit;
+            if (typeof o.dedupe === "boolean") st.dedupe = o.dedupe;
+            if (o.sortBy === "score" || o.sortBy === "change" || o.sortBy === "change24h" || o.sortBy === "spike") {
+                st.sortBy = o.sortBy;
+            }
+            const togglesObj = asRecord(o.signalToggles);
+            if (togglesObj) {
+                st.signalToggles = {
+                    whale: !!togglesObj.whale,
+                    bigMove: !!togglesObj.bigMove,
+                    dump: !!togglesObj.dump,
+                    breakout: !!togglesObj.breakout,
+                    reversal: !!togglesObj.reversal,
+                    watch: !!togglesObj.watch,
+                };
+            }
+
+            applyFiltersState(st);
+        } catch {
+            applyPresetById(DEFAULT_PRESET_ID);
+            setPendingPresetId(DEFAULT_PRESET_ID);
+            window.localStorage.setItem(PRESET_ID_KEY, DEFAULT_PRESET_ID);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const filters: FiltersState = {
+            tf,
+            includeCalm,
+            onlyStrong,
+            strongScore,
+            minScore,
+            keep: eventsLimit,
+            scoreJump,
+            cooldownSec,
+            signalToggles: signalFilterToToggles(signalFilter),
+            limit,
+            dedupe,
+            sortBy,
+        };
+        window.localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
+    }, [tf, includeCalm, onlyStrong, strongScore, minScore, eventsLimit, scoreJump, cooldownSec, signalFilter, limit, dedupe, sortBy]);
+
+    useEffect(() => {
         // при смене режима — делаем первичную загрузку
         if (mode === "events") loadEvents();
         else loadTable();
@@ -243,10 +459,10 @@ export default function AlertsClient() {
     }, [mode, events, rows, sources]);
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-3 text-sm text-white/80">
             {/* Controls */}
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-3">
-                <div className="flex items-center gap-1 rounded-lg border border-white/10 p-1">
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-slate-900/40 p-3 backdrop-blur-md shadow-sm">
+                <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-1">
                     <button
                         className={[
                             "rounded-md px-2 py-1 text-sm transition",
@@ -269,8 +485,40 @@ export default function AlertsClient() {
                     </button>
                 </div>
 
+                <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-1">
+                    {ALERTS_PRESETS.map((p) => (
+                        <button
+                            key={p.id}
+                            type="button"
+                            className={[
+                                "rounded-md border px-2 py-1 text-sm transition",
+                                pendingPresetId === p.id
+                                    ? "border-white/20 bg-white/10 text-white/90"
+                                    : "border-transparent text-white/70 hover:text-white/90",
+                            ].join(" ")}
+                            onClick={() => setPendingPresetId(p.id)}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                    <button
+                        type="button"
+                        className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-sm text-white/80 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
+                        onClick={() => {
+                            applyPresetById(pendingPresetId);
+                            if (typeof window !== "undefined") {
+                                window.localStorage.setItem(PRESET_ID_KEY, pendingPresetId);
+                            }
+                        }}
+                    >
+                        Apply preset
+                    </button>
+                </div>
+
+                <span className="text-xs text-white/50">Preset: {getPresetById(selectedPresetId).label}</span>
+
                 <select
-                    className="rounded-lg border border-white/10 bg-transparent px-2 py-1"
+                    className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
                     value={tf}
                     onChange={(e) => setTf(e.target.value)}
                 >
@@ -292,7 +540,7 @@ export default function AlertsClient() {
                 <label className="flex items-center gap-2 text-sm">
                     strongScore
                     <input
-                        className="w-20 rounded-lg border border-white/10 bg-transparent px-2 py-1 disabled:opacity-50"
+                        className="w-20 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20 disabled:opacity-50"
                         type="number"
                         step="0.1"
                         value={strongScore}
@@ -304,7 +552,7 @@ export default function AlertsClient() {
                 <label className="flex items-center gap-2 text-sm">
                     minScore
                     <input
-                        className="w-20 rounded-lg border border-white/10 bg-transparent px-2 py-1 disabled:opacity-50"
+                        className="w-20 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20 disabled:opacity-50"
                         type="number"
                         step="0.1"
                         value={minScore}
@@ -318,7 +566,7 @@ export default function AlertsClient() {
                         <label className="flex items-center gap-2 text-sm">
                             limit
                             <input
-                                className="w-24 rounded-lg border border-white/10 bg-transparent px-2 py-1"
+                                className="w-24 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
                                 type="number"
                                 step="10"
                                 value={limit}
@@ -332,7 +580,7 @@ export default function AlertsClient() {
                         </label>
 
                         <select
-                            className="rounded-lg border border-white/10 bg-transparent px-2 py-1"
+                            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
                             value={sortBy}
                             onChange={(e) => setSortBy(e.target.value as SortBy)}
                         >
@@ -347,7 +595,7 @@ export default function AlertsClient() {
                         <label className="flex items-center gap-2 text-sm">
                             keep
                             <input
-                                className="w-24 rounded-lg border border-white/10 bg-transparent px-2 py-1"
+                                className="w-24 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
                                 type="number"
                                 step="5"
                                 value={eventsLimit}
@@ -358,7 +606,7 @@ export default function AlertsClient() {
                         <label className="flex items-center gap-2 text-sm">
                             scoreJump
                             <input
-                                className="w-24 rounded-lg border border-white/10 bg-transparent px-2 py-1"
+                                className="w-24 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
                                 type="number"
                                 step="0.1"
                                 value={scoreJump}
@@ -369,7 +617,7 @@ export default function AlertsClient() {
                         <label className="flex items-center gap-2 text-sm">
                             cooldown(s)
                             <input
-                                className="w-24 rounded-lg border border-white/10 bg-transparent px-2 py-1"
+                                className="w-24 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
                                 type="number"
                                 step="10"
                                 value={cooldownSec}
@@ -378,7 +626,7 @@ export default function AlertsClient() {
                         </label>
 
                         <button
-                            className="rounded-lg border border-white/10 px-3 py-1 text-sm hover:bg-white/5"
+                            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/80 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
                             onClick={clearEvents}
                             type="button"
                         >
@@ -393,7 +641,7 @@ export default function AlertsClient() {
                 </label>
 
                 <button
-                    className="rounded-lg border border-white/10 px-3 py-1 text-sm hover:bg-white/5"
+                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/80 placeholder:text-white/40 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
                     onClick={refresh}
                     disabled={loading}
                 >
@@ -462,29 +710,29 @@ export default function AlertsClient() {
 
             {/* Body */}
             {mode === "events" ? (
-                <div className="overflow-hidden rounded-xl border border-white/10">
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur-md shadow-sm">
                     <div className="max-h-[70vh] overflow-auto">
-                        <table className="w-full text-sm">
-                            <thead className="sticky top-0 bg-black/60 backdrop-blur">
+                        <table className="w-full text-sm text-white/80">
+                            <thead className="sticky top-0 bg-white/5 text-sm font-medium text-white/80">
                                 <tr className="text-left">
-                                    <th className="p-2">Type</th>
-                                    <th className="p-2">Asset</th>
-                                    <th className="p-2">Exch</th>
-                                    <th className="p-2">Score</th>
-                                    <th className="p-2">Signal</th>
-                                    <th className="p-2">Δ(tf)</th>
-                                    <th className="p-2">24h%</th>
-                                    <th className="p-2">Price</th>
-                                    <th className="p-2">Prev</th>
+                                    <th className="px-4 py-3">Type</th>
+                                    <th className="px-4 py-3">Asset</th>
+                                    <th className="px-4 py-3">Exch</th>
+                                    <th className="px-4 py-3">Score</th>
+                                    <th className="px-4 py-3">Signal</th>
+                                    <th className="px-4 py-3">Δ(tf)</th>
+                                    <th className="px-4 py-3">24h%</th>
+                                    <th className="px-4 py-3">Price</th>
+                                    <th className="px-4 py-3">Prev</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="text-sm text-white/80 leading-5">
                                 {events.map((r, idx) => (
-                                    <tr key={r.eventId ?? `${idx}:${r.ts}:${r.baseAsset}`} className="border-t border-white/5">
-                                        <td className="p-2 text-xs opacity-80">
+                                    <tr key={r.eventId ?? `${idx}:${r.ts}:${r.baseAsset}`} className="border-t border-white/5 hover:bg-white/5">
+                                        <td className="px-4 py-3 text-xs text-white/50">
                                             {r.eventType === "signal_change" ? "Signal" : "Score"}
                                         </td>
-                                        <td className="p-2">
+                                        <td className="px-4 py-3">
                                             <div className="flex items-center gap-2">
                                                 {(r.logoUrl || r.iconUrl) ? (
                                                     // eslint-disable-next-line @next/next/no-img-element
@@ -498,16 +746,16 @@ export default function AlertsClient() {
                                                     <div className="h-5 w-5 rounded-full border border-white/10" />
                                                 )}
                                                 <div className="font-medium">{r.baseAsset}</div>
-                                                <div className="text-xs opacity-60">{r.symbol}</div>
+                                                <div className="text-xs text-white/50">{r.symbol}</div>
                                             </div>
                                         </td>
-                                        <td className="p-2">{r.exchange}</td>
-                                        <td className="p-2">{r.score.toFixed(2)}</td>
-                                        <td className="p-2">{r.signal}</td>
-                                        <td className="p-2">{fmtPct(r.changePercent)}</td>
-                                        <td className="p-2">{fmtPct(r.change24hPercent)}</td>
-                                        <td className="p-2">{fmtPrice(r.price)}</td>
-                                        <td className="p-2 text-xs opacity-70">
+                                        <td className="px-4 py-3">{r.exchange}</td>
+                                        <td className="px-4 py-3">{r.score.toFixed(2)}</td>
+                                        <td className="px-4 py-3">{r.signal}</td>
+                                        <td className="px-4 py-3">{fmtPct(r.changePercent)}</td>
+                                        <td className="px-4 py-3">{fmtPct(r.change24hPercent)}</td>
+                                        <td className="px-4 py-3">{fmtPrice(r.price)}</td>
+                                        <td className="px-4 py-3 text-xs text-white/50">
                                             {r.prevSignal != null || r.prevScore != null
                                                 ? `${r.prevSignal ?? "—"} / ${(r.prevScore ?? 0).toFixed(2)}`
                                                 : "—"}
@@ -524,27 +772,27 @@ export default function AlertsClient() {
                     </div>
                 </div>
             ) : (
-                <div className="overflow-hidden rounded-xl border border-white/10">
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur-md shadow-sm">
                     <div className="max-h-[70vh] overflow-auto">
-                        <table className="w-full text-sm">
-                            <thead className="sticky top-0 bg-black/60 backdrop-blur">
+                        <table className="w-full text-sm text-white/80">
+                            <thead className="sticky top-0 bg-white/5 text-sm font-medium text-white/80">
                                 <tr className="text-left">
-                                    <th className="p-2">Asset</th>
-                                    <th className="p-2">Exch</th>
-                                    <th className="p-2">Price</th>
-                                    <th className="p-2">Δ(tf)</th>
-                                    <th className="p-2">24h%</th>
-                                    <th className="p-2">Score</th>
-                                    <th className="p-2">Signal</th>
-                                    <th className="p-2">VolSpike</th>
-                                    <th className="p-2">MCap</th>
-                                    <th className="p-2">Merged</th>
+                                    <th className="px-4 py-3">Asset</th>
+                                    <th className="px-4 py-3">Exch</th>
+                                    <th className="px-4 py-3">Price</th>
+                                    <th className="px-4 py-3">Δ(tf)</th>
+                                    <th className="px-4 py-3">24h%</th>
+                                    <th className="px-4 py-3">Score</th>
+                                    <th className="px-4 py-3">Signal</th>
+                                    <th className="px-4 py-3">VolSpike</th>
+                                    <th className="px-4 py-3">MCap</th>
+                                    <th className="px-4 py-3">Merged</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="text-sm text-white/80 leading-5">
                                 {rows.map((r) => (
-                                    <tr key={r.id ?? `${r.baseAsset}:${r.exchange}:${r.symbol}`} className="border-t border-white/5">
-                                        <td className="p-2">
+                                    <tr key={r.id ?? `${r.baseAsset}:${r.exchange}:${r.symbol}`} className="border-t border-white/5 hover:bg-white/5">
+                                        <td className="px-4 py-3">
                                             <div className="flex items-center gap-2">
                                                 {(r.logoUrl || r.iconUrl) ? (
                                                     // eslint-disable-next-line @next/next/no-img-element
@@ -558,18 +806,18 @@ export default function AlertsClient() {
                                                     <div className="h-5 w-5 rounded-full border border-white/10" />
                                                 )}
                                                 <div className="font-medium">{r.baseAsset}</div>
-                                                <div className="text-xs opacity-60">{r.symbol}</div>
+                                                <div className="text-xs text-white/50">{r.symbol}</div>
                                             </div>
                                         </td>
-                                        <td className="p-2">{r.exchange}</td>
-                                        <td className="p-2">{fmtPrice(r.price)}</td>
-                                        <td className="p-2">{fmtPct(r.changePercent)}</td>
-                                        <td className="p-2">{fmtPct(r.change24hPercent)}</td>
-                                        <td className="p-2">{(r.score ?? 0).toFixed(2)}</td>
-                                        <td className="p-2">{r.signal}</td>
-                                        <td className="p-2">{r.volSpike == null ? "—" : `${r.volSpike.toFixed(2)}x`}</td>
-                                        <td className="p-2">{r.marketCap ?? (r.marketCapRaw === null ? "—" : String(r.marketCapRaw))}</td>
-                                        <td className="p-2 text-xs opacity-70">
+                                        <td className="px-4 py-3">{r.exchange}</td>
+                                        <td className="px-4 py-3">{fmtPrice(r.price)}</td>
+                                        <td className="px-4 py-3">{fmtPct(r.changePercent)}</td>
+                                        <td className="px-4 py-3">{fmtPct(r.change24hPercent)}</td>
+                                        <td className="px-4 py-3">{(r.score ?? 0).toFixed(2)}</td>
+                                        <td className="px-4 py-3">{r.signal}</td>
+                                        <td className="px-4 py-3">{r.volSpike == null ? "—" : `${r.volSpike.toFixed(2)}x`}</td>
+                                        <td className="px-4 py-3">{r.marketCap ?? (r.marketCapRaw === null ? "—" : String(r.marketCapRaw))}</td>
+                                        <td className="px-4 py-3 text-xs text-white/50">
                                             {r.mergedFrom?.length ? r.mergedFrom.map((x) => `${x.exchange}:${x.symbol}`).join(", ") : "—"}
                                         </td>
                                     </tr>
