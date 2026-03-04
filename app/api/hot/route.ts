@@ -42,6 +42,7 @@ type HotRow = {
   spikeCandles?: number;
   spikeNeed?: number;
   newListing?: boolean;
+  spikeMode?: SpikeMode;
   score: number;
   signal: string;
 
@@ -863,7 +864,8 @@ export async function GET(req: Request) {
           volSpike,
           spikeCandles,
           spikeNeed,
-          newListing: spikeCandles < spikeNeed,
+          newListing: spikeCandles > 0 && spikeCandles < spikeNeed,
+          spikeMode,
           score,
           signal,
           source: "klines",

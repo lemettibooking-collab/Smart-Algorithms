@@ -27,6 +27,7 @@ export type HotSymbol = {
   spikeCandles?: number;
   spikeNeed?: number;
   newListing?: boolean;
+  spikeMode?: SpikeMode;
   score: number;
   signal: string;
 

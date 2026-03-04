@@ -246,7 +246,7 @@ export function HotTable({
               const isNewListing = (r as any).newListing === true;
               const spikeCandles = Number((r as any).spikeCandles ?? 0);
               const spikeNeed = Number((r as any).spikeNeed ?? 0);
-              const spikeModeLabel = spikeNeed <= 6 ? "Scalp" : "Pulse";
+              const spikeModeLabel = (r as any).spikeMode === "scalp" ? "Scalp" : "Pulse";
 
               const rowExchange = ((r as any).exchange as Exchange) ?? exchange;
               const baseAsset = ((r as any).baseAsset as string | null) ?? null;
