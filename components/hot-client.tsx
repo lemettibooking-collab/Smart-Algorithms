@@ -353,8 +353,8 @@ export function HotClient({
       const tfServer = json.tf ? sanitizeTf(json.tf, tfSafe) : tfSafe;
       if (json.tf) setTf((prev) => sanitizeTf(json.tf, prev));
 
-      if ((json as any).exchange) {
-        setExchange((prev) => sanitizeExchange((json as any).exchange, prev));
+      if (json.exchange) {
+        setExchange((prev) => sanitizeExchange(json.exchange, prev));
       }
 
       const data = json.data ?? [];
@@ -369,7 +369,7 @@ export function HotClient({
         return updated ?? prevSel;
       });
     } catch (e: unknown) {
-      if ((e as any)?.name === "AbortError") return;
+      if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setLoading(false);

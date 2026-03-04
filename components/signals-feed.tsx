@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { FeedEvent } from "./symbol-drawer";
+import type { SignalEvent as FeedEvent } from "./symbol-drawer";
 
 function classForSignal(signal: string) {
     const s = signal.toLowerCase();

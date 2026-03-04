@@ -12,7 +12,6 @@ import {
   isUsdtSpotSymbol as isUsdtSpotSymbolBinance,
   isStable,
   isValidInterval as isValidIntervalBinance,
-  Candle as BinanceCandle,
   baseAssetFromBinanceSymbol,
 } from "@/lib/binance";
 
@@ -24,7 +23,8 @@ export const runtime = "nodejs";
 
 type Exchange = "binance" | "mexc";
 type SpikeMode = "pulse" | "scalp";
-type AnyCandle = BinanceCandle | mexc.Candle;
+type AnyRecord = Record<string, unknown>;
+type AnyCandle = AnyRecord | unknown[];
 
 type HotRow = {
   exchange: Exchange;
@@ -53,7 +53,7 @@ type HotRow = {
   baseAsset?: string | null;
 };
 
-function num(v: any, fallback = 0) {
+function num(v: unknown, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -87,7 +87,7 @@ function getSpikeMode(sp: URLSearchParams): SpikeMode {
   return v === "scalp" ? "scalp" : "pulse";
 }
 
-function makeKey(prefix: string, obj: Record<string, any>) {
+function makeKey(prefix: string, obj: Record<string, unknown>) {
   return prefix + ":" + JSON.stringify(obj);
 }
 
@@ -110,11 +110,11 @@ function formatCompact(n: number): string {
   return n.toFixed(2);
 }
 
-const hotCache = new TTLCache<any>(30_000, 200);
-const hotInFlight = new InFlight<any>();
+const hotCache = new TTLCache<Record<string, unknown>>(30_000, 200);
+const hotInFlight = new InFlight<Record<string, unknown>>();
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length) as any;
+  const out = new Array<R>(items.length);
   let i = 0;
 
   const workers = new Array(Math.max(1, limit)).fill(0).map(async () => {
@@ -127,6 +127,48 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, idx: numb
 
   await Promise.all(workers);
   return out;
+}
+
+function asRecord(v: unknown): AnyRecord | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  return v as AnyRecord;
+}
+
+function propNum(obj: unknown, key: string): number {
+  const rec = asRecord(obj);
+  if (!rec) return 0;
+  return num(rec[key], 0);
+}
+
+function propStr(obj: unknown, key: string): string {
+  const rec = asRecord(obj);
+  if (!rec) return "";
+  const v = rec[key];
+  return typeof v === "string" ? v : String(v ?? "");
+}
+
+function tickerSymbol(t: unknown): string {
+  return propStr(t, "symbol");
+}
+
+function tickerQuoteVolume(t: unknown): number {
+  return propNum(t, "quoteVolume");
+}
+
+function tickerLastPrice(t: unknown): number {
+  return propNum(t, "lastPrice");
+}
+
+function tickerOpenPrice(t: unknown): number {
+  return propNum(t, "openPrice");
+}
+
+function tickerBaseAsset(t: unknown): string {
+  return propStr(t, "baseAsset");
+}
+
+function isPositiveFinite(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v > 0;
 }
 
 function hotTtlMs(tf: string) {
@@ -182,7 +224,7 @@ async function attachMarketCapFallbackBatch(
   const missingBases = Array.from(
     new Set(
       rows
-        .filter((r) => !(Number.isFinite(r.marketCapRaw as any) && (r.marketCapRaw as number) > 0))
+        .filter((r) => !isPositiveFinite(num(r.marketCapRaw)))
         .map((r) => String(r.baseAsset ?? "").trim().toUpperCase())
         .filter(Boolean)
     )
@@ -206,9 +248,9 @@ async function attachMarketCapFallbackBatch(
     const got = fallbackMap.get(base);
     if (!got) continue;
     r.marketCapSource = got.source;
-    if (Number.isFinite(got.marketCap as any) && (got.marketCap as number) > 0) {
-      r.marketCapRaw = got.marketCap as number;
-      r.marketCap = formatCompact(got.marketCap as number);
+    if (isPositiveFinite(got.marketCap)) {
+      r.marketCapRaw = got.marketCap;
+      r.marketCap = formatCompact(got.marketCap);
       found++;
     } else {
       r.marketCapRaw = r.marketCapRaw ?? null;
@@ -216,7 +258,7 @@ async function attachMarketCapFallbackBatch(
   }
 
   if (process.env.NODE_ENV !== "production") {
-    const unresolved = rows.filter((r) => !(Number.isFinite(r.marketCapRaw as any) && (r.marketCapRaw as number) > 0)).length;
+    const unresolved = rows.filter((r) => !isPositiveFinite(num(r.marketCapRaw))).length;
     console.debug(
       "[hot:marketcap]",
       JSON.stringify({
@@ -266,36 +308,37 @@ function tfScaleFrom24h(tf: string) {
   }
 }
 
-function candleCloseTimeMs(c: any): number | null {
+function candleCloseTimeMs(c: AnyCandle): number | null {
   const raw = Number(
-    Array.isArray(c) ? c[6] : (c?.closeTime ?? c?.t ?? c?.T)
+    Array.isArray(c) ? c[6] : (c.closeTime ?? c.t ?? c.T)
   );
   if (!Number.isFinite(raw) || raw <= 0) return null;
   return raw < 1e12 ? raw * 1000 : raw;
 }
 
-function candleClosePrice(c: any): number {
-  return Number(Array.isArray(c) ? c[4] : (c?.close ?? c?.c));
+function candleClosePrice(c: AnyCandle): number {
+  return Number(Array.isArray(c) ? c[4] : (c.close ?? c.c));
 }
 
-function candleBaseVolume(c: any): number {
-  return Number(Array.isArray(c) ? c[5] : (c?.volume ?? c?.vol ?? c?.v));
+function candleOpenPrice(c: AnyCandle): number {
+  return Number(Array.isArray(c) ? c[1] : (c.open ?? c.o));
 }
 
-function candleQuoteVolume(c: any): number {
-  return Number(
-    Array.isArray(c)
-      ? c[7]
-      : (c?.quoteAssetVolume ??
-        c?.quoteVolume ??
-        c?.quoteVol ??
-        c?.turnover ??
-        c?.amountQuote ??
-        c?.quoteAmount)
-  );
+function candleBaseVolume(c: AnyCandle): number {
+  return Number(Array.isArray(c) ? c[5] : (c.volume ?? c.v ?? c.vol));
 }
 
-function candleQuoteVolumeOrEstimate(c: any): number {
+function candleQuoteVolume(c: AnyCandle): number {
+  if (Array.isArray(c)) return num(c[7], 0);
+  const keys = ["quoteAssetVolume", "quoteVolume", "quoteVol", "turnover", "amountQuote", "quoteAmount"] as const;
+  for (const key of keys) {
+    const raw = c[key];
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return raw;
+  }
+  return 0;
+}
+
+function candleQuoteVolumeOrEstimate(c: AnyCandle): number {
   const q = candleQuoteVolume(c);
   if (Number.isFinite(q) && q > 0) return q;
 
@@ -314,7 +357,7 @@ function lastClosedIndex(candles: AnyCandle[]) {
   if (!candles || candles.length < 1) return -1;
   const now = Date.now();
   let idxLast = candles.length - 1;
-  const ct = candleCloseTimeMs(candles[idxLast] as any);
+  const ct = candleCloseTimeMs(candles[idxLast]);
   if (ct != null && ct > now) idxLast = Math.max(0, idxLast - 1);
   return idxLast;
 }
@@ -322,8 +365,7 @@ function lastClosedIndex(candles: AnyCandle[]) {
 function lastClosedCandleClose(candles: AnyCandle[]): number | null {
   const idx = lastClosedIndex(candles);
   if (idx < 0) return null;
-  const c: any = candles[idx];
-  const close = Number(c?.close);
+  const close = candleClosePrice(candles[idx]);
   return Number.isFinite(close) && close > 0 ? close : null;
 }
 
@@ -331,12 +373,12 @@ function computeTfChangeFromCandles(candles: AnyCandle[], currentPrice: number):
   const idxLast = lastClosedIndex(candles);
   if (idxLast < 0) return null;
 
-  const baseC: any = candles[idxLast];
-  let base = Number.isFinite(Number(baseC?.open)) ? Number(baseC.open) : Number.NaN;
-  if (!(base > 0) && idxLast - 1 >= 0) base = Number((candles[idxLast - 1] as any).close);
+  const baseC = candles[idxLast];
+  let base = candleOpenPrice(baseC);
+  if (!(base > 0) && idxLast - 1 >= 0) base = candleClosePrice(candles[idxLast - 1]);
   if (!(base > 0)) return null;
 
-  const price = Number.isFinite(currentPrice) && currentPrice > 0 ? currentPrice : Number(baseC?.close);
+  const price = Number.isFinite(currentPrice) && currentPrice > 0 ? currentPrice : candleClosePrice(baseC);
   if (!(price > 0)) return null;
 
   return ((price - base) / base) * 100;
@@ -349,12 +391,12 @@ function computeCandleVolSpikeFromCandles(candles: AnyCandle[], spikeMode: Spike
   const idxSpike = candles.length - 1;
   if (idxSpike < window) return null;
   const startPrev = idxSpike - window;
-  const qvAt = (c: any) => candleQuoteVolumeOrEstimate(c);
+  const qvAt = (c: AnyCandle) => candleQuoteVolumeOrEstimate(c);
 
-  const lastQv = qvAt((candles as any)[idxSpike]);
+  const lastQv = qvAt(candles[idxSpike]);
   if (!Number.isFinite(lastQv) || lastQv <= 0) return null;
 
-  const prevArr = (candles as any).slice(startPrev, idxSpike).map(qvAt);
+  const prevArr = candles.slice(startPrev, idxSpike).map(qvAt);
   if (prevArr.length < window) return null;
   const baseline =
     spikeMode === "scalp"
@@ -376,9 +418,9 @@ function applyIlliquidVolSpikeFilter(volSpike: number | null, candles: AnyCandle
   if (idxSpike < window) return null;
   const startPrev = idxSpike - window;
 
-  const qvAt = (c: any) => candleQuoteVolumeOrEstimate(c);
+  const qvAt = (c: AnyCandle) => candleQuoteVolumeOrEstimate(c);
 
-  const prevArr = (candles as any).slice(startPrev, idxSpike).map(qvAt);
+  const prevArr = candles.slice(startPrev, idxSpike).map(qvAt);
   if (prevArr.length < window) return null;
   const baseline =
     spikeMode === "scalp"
@@ -390,21 +432,21 @@ function applyIlliquidVolSpikeFilter(volSpike: number | null, candles: AnyCandle
 
   return volSpike;
 }
-function getLiveSnap(exchange: Exchange, symbol: string, t: any) {
+function getLiveSnap(exchange: Exchange, symbol: string, t: unknown) {
   if (exchange === "binance") {
     const ws = getWsPriceSnap(symbol);
-    const price = ws?.price ?? num(t.lastPrice);
-    const open24h = ws?.open24h ?? num(t.openPrice);
-    const quoteVol24h = ws?.quoteVol24h ?? num(t.quoteVolume);
+    const price = ws?.price ?? tickerLastPrice(t);
+    const open24h = ws?.open24h ?? tickerOpenPrice(t);
+    const quoteVol24h = ws?.quoteVol24h ?? tickerQuoteVolume(t);
     const wsOk = !!ws;
     return { price, open24h, quoteVol24h, wsOk };
   }
 
   const ws = getMexcWsPriceSnap(symbol);
-  const price = ws?.price ?? num(t.lastPrice);
+  const price = ws?.price ?? tickerLastPrice(t);
 
-  let open24h = num(t.openPrice);
-  let quoteVol24h = num(t.quoteVolume);
+  let open24h = tickerOpenPrice(t);
+  let quoteVol24h = tickerQuoteVolume(t);
 
   if (!(open24h > 0)) open24h = ws?.open24h ?? 0;
   if (!(quoteVol24h > 0)) quoteVol24h = ws?.quoteVol24h ?? 0;
@@ -413,8 +455,8 @@ function getLiveSnap(exchange: Exchange, symbol: string, t: any) {
   return { price, open24h, quoteVol24h, wsOk };
 }
 
-function rowFromTicker(exchange: Exchange, t: any, tf: string, baseAsset: string | null, opts?: { tickerMode?: boolean }): HotRow {
-  const symbol = String(t.symbol);
+function rowFromTicker(exchange: Exchange, t: unknown, tf: string, baseAsset: string | null, opts?: { tickerMode?: boolean }): HotRow {
+  const symbol = tickerSymbol(t);
   const snap = getLiveSnap(exchange, symbol, t);
 
   const change24hPercent = compute24hPercent(snap.open24h, snap.price);
@@ -461,10 +503,10 @@ function rowFromTicker(exchange: Exchange, t: any, tf: string, baseAsset: string
 function wsHealthFor(exchange: Exchange) {
   if (exchange === "binance") return getWsHealth();
   if (exchange === "mexc") return getMexcWsHealth();
-  return { connected: false, lastMsgAgeMs: null as any, size: 0 };
+  return { connected: false, lastMsgAgeMs: null, size: 0 };
 }
 
-function withLiveWs(payload: any, exchange: Exchange) {
+function withLiveWs<T extends Record<string, unknown>>(payload: T, exchange: Exchange) {
   return { ...payload, ws: wsHealthFor(exchange) };
 }
 
@@ -534,10 +576,10 @@ export async function GET(req: Request) {
     if (exchange === "mexc") {
       try {
         const info = await mexc.fetchExchangeInfoCached();
-        const symbols: any[] = Array.isArray(info?.symbols) ? info.symbols : [];
+        const symbols: unknown[] = Array.isArray(info?.symbols) ? info.symbols : [];
         for (const s of symbols) {
-          const sym = String(s?.symbol ?? "").toUpperCase();
-          const base = String(s?.baseAsset ?? "").toUpperCase();
+          const sym = tickerSymbol(s).toUpperCase();
+          const base = tickerBaseAsset(s).toUpperCase();
           if (sym) mexcBaseBySymbol.set(sym, base);
         }
       } catch {
@@ -549,19 +591,19 @@ export async function GET(req: Request) {
     const capMap = await getMarketCapMap();
 
     let base = tickers
-      .filter((t) => isUsdtSpotSymbol(String((t as any).symbol)))
-      .filter((t) => (includeStables ? true : !isStable(String((t as any).symbol))));
+      .filter((t) => isUsdtSpotSymbol(tickerSymbol(t)))
+      .filter((t) => (includeStables ? true : !isStable(tickerSymbol(t))));
 
     if (exchange === "binance" && minVol > 0) {
-      base = base.filter((t) => num((t as any).quoteVolume) >= minVol);
+      base = base.filter((t) => tickerQuoteVolume(t) >= minVol);
     }
 
     if (exchange === "mexc") {
       base.sort((a, b) => {
-        const ap = num((a as any).lastPrice);
-        const ao = num((a as any).openPrice);
-        const bp = num((b as any).lastPrice);
-        const bo = num((b as any).openPrice);
+        const ap = tickerLastPrice(a);
+        const ao = tickerOpenPrice(a);
+        const bp = tickerLastPrice(b);
+        const bo = tickerOpenPrice(b);
 
         const aCh = ao > 0 ? ((ap - ao) / ao) * 100 : 0;
         const bCh = bo > 0 ? ((bp - bo) / bo) * 100 : 0;
@@ -569,7 +611,7 @@ export async function GET(req: Request) {
         return Math.abs(bCh) - Math.abs(aCh);
       });
     } else {
-      base.sort((a, b) => num((b as any).quoteVolume) - num((a as any).quoteVolume));
+      base.sort((a, b) => tickerQuoteVolume(b) - tickerQuoteVolume(a));
     }
 
     const maxCap = exchange === "mexc" ? 5000 : 300;
@@ -577,7 +619,7 @@ export async function GET(req: Request) {
 
     const candidates =
       exchange === "mexc"
-        ? (minVol > 0 ? pool.filter((t) => num((t as any).quoteVolume) >= minVol) : pool)
+        ? (minVol > 0 ? pool.filter((t) => tickerQuoteVolume(t) >= minVol) : pool)
         : pool;
 
     const getBaseAsset = (sym: string): string | null => {
@@ -592,7 +634,7 @@ export async function GET(req: Request) {
 
       // 1) собираем базовые строки (24h% + 24h volume), без spike пока
       const baseRows = candidates.map((t) => {
-        const sym = String((t as any).symbol);
+        const sym = tickerSymbol(t);
         const baseAsset = getBaseAsset(sym);
 
         const snap = getLiveSnap(exchange, sym, t);
@@ -614,7 +656,7 @@ export async function GET(req: Request) {
 
       const topForSpike = [...candidates]
         .slice()
-        .sort((a, b) => num((b as any).quoteVolume) - num((a as any).quoteVolume))
+        .sort((a, b) => tickerQuoteVolume(b) - tickerQuoteVolume(a))
         .slice(0, TOP_SPIKE_N);
 
       const spikeBySymbol = new Map<string, number | null>();
@@ -622,7 +664,7 @@ export async function GET(req: Request) {
       const spikeConcurrency = exchange === "mexc" ? 3 : 6;
 
       await mapLimit(topForSpike, spikeConcurrency, async (t) => {
-        const sym = String((t as any).symbol);
+        const sym = tickerSymbol(t);
         try {
           const candles = (await fetchKlinesCached(sym, spikeInterval, spikeKlinesLimit)) as AnyCandle[];
           const spike = computeCandleVolSpikeFromCandles(candles, spikeMode);
@@ -723,7 +765,7 @@ export async function GET(req: Request) {
     const degradeReason: string[] = [];
 
     const computed = await mapLimit(kTop, CONCURRENCY, async (t) => {
-      const symbol = String((t as any).symbol);
+      const symbol = tickerSymbol(t);
       const baseAsset = getBaseAsset(symbol);
 
       const snap = getLiveSnap(exchange, symbol, t);
@@ -826,7 +868,7 @@ export async function GET(req: Request) {
 
     const bySymbol = new Map<string, HotRow>();
     for (let i = 0; i < kTop.length; i++) {
-      const sym = String((kTop[i] as any).symbol);
+      const sym = tickerSymbol(kTop[i]);
       const r = computed[i];
       if (r) bySymbol.set(sym, r);
     }
@@ -834,7 +876,7 @@ export async function GET(req: Request) {
     let wsUsed = 0;
 
     const rowsAll = candidates.map((t) => {
-      const sym = String((t as any).symbol);
+      const sym = tickerSymbol(t);
       const baseAsset = getBaseAsset(sym);
 
       const fromK = bySymbol.get(sym);
@@ -897,7 +939,8 @@ export async function GET(req: Request) {
   try {
     const out = await p;
     return NextResponse.json(withLiveWs({ ...out, cache: { hit: false, ttlMs } }, exchange));
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message ?? e), ts: Date.now() }, { status: 500 });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ ok: false, error: msg, ts: Date.now() }, { status: 500 });
   }
 }

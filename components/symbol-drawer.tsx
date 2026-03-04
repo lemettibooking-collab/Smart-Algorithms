@@ -36,6 +36,8 @@ export type SignalEvent = {
     tf: TF;
     price: number;
     changePercent: number;
+    changeTf?: number;
+    score?: number;
     volSpike: number | null;
     source?: "klines" | "fallback";
 };
