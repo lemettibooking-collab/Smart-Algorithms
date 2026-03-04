@@ -848,8 +848,6 @@ export default function AlertsClient() {
                                     <th className="px-4 py-3">Signal</th>
                                     <th className="px-4 py-3">Δ(tf)</th>
                                     <th className="px-4 py-3">24h%</th>
-                                    <th className="px-4 py-3">Price</th>
-                                    <th className="px-4 py-3">Prev</th>
                                 </tr>
                             </thead>
                             <tbody className="text-sm text-white/80 leading-5">
@@ -880,17 +878,11 @@ export default function AlertsClient() {
                                         <td className="px-4 py-3">{r.signal}</td>
                                         <td className="px-4 py-3">{fmtPct(r.changePercent)}</td>
                                         <td className="px-4 py-3">{fmtPct(r.change24hPercent)}</td>
-                                        <td className="px-4 py-3">{fmtPrice(r.price)}</td>
-                                        <td className="px-4 py-3 text-xs text-white/50">
-                                            {r.prevSignal != null || r.prevScore != null
-                                                ? `${r.prevSignal ?? "—"} / ${(r.prevScore ?? 0).toFixed(2)}`
-                                                : "—"}
-                                        </td>
                                     </tr>
                                 ))}
                                 {!events.length && !loading ? (
                                     <tr>
-                                        <td className="p-3 text-sm opacity-70" colSpan={9}>No events yet</td>
+                                        <td className="p-3 text-sm opacity-70" colSpan={7}>No events yet</td>
                                     </tr>
                                 ) : null}
                             </tbody>
