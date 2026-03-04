@@ -60,6 +60,10 @@ export class InFlight<T> {
         // гарантированно чистим
         p.finally(() => this.map.delete(key)).catch(() => { });
     }
+
+    delete(key: string) {
+        this.map.delete(key);
+    }
 }
 
 // Concurrency limiter (семофор)

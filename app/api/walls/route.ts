@@ -77,9 +77,13 @@ async function fetchDepthCached(symbol: string): Promise<DepthSnapshot> {
     if (inflight) return inflight;
 
     const p = limit(async () => {
-        const got = await fetchDepth(symbol);
-        depthCache.set(key, got, 2500);
-        return got;
+        try {
+            const got = await fetchDepth(symbol);
+            depthCache.set(key, got, 2500);
+            return got;
+        } finally {
+            depthInFlight.delete(key);
+        }
     });
     depthInFlight.set(key, p);
     return p;
