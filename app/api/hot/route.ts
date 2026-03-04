@@ -260,12 +260,52 @@ function tfScaleFrom24h(tf: string) {
   }
 }
 
+function candleCloseTimeMs(c: any): number | null {
+  const raw = Number(
+    Array.isArray(c) ? c[6] : (c?.closeTime ?? c?.t ?? c?.T)
+  );
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  return raw < 1e12 ? raw * 1000 : raw;
+}
+
+function candleClosePrice(c: any): number {
+  return Number(Array.isArray(c) ? c[4] : (c?.close ?? c?.c));
+}
+
+function candleBaseVolume(c: any): number {
+  return Number(Array.isArray(c) ? c[5] : (c?.volume ?? c?.vol ?? c?.v));
+}
+
+function candleQuoteVolume(c: any): number {
+  return Number(
+    Array.isArray(c)
+      ? c[7]
+      : (c?.quoteAssetVolume ??
+        c?.quoteVolume ??
+        c?.quoteVol ??
+        c?.turnover ??
+        c?.amountQuote ??
+        c?.quoteAmount)
+  );
+}
+
+function candleQuoteVolumeOrEstimate(c: any): number {
+  const q = candleQuoteVolume(c);
+  if (Number.isFinite(q) && q > 0) return q;
+
+  const v = candleBaseVolume(c);
+  const close = candleClosePrice(c);
+  if (Number.isFinite(v) && v > 0 && Number.isFinite(close) && close > 0) return v * close;
+
+  return 0;
+}
+
 function lastClosedIndex(candles: AnyCandle[]) {
   if (!candles || candles.length < 1) return -1;
   const now = Date.now();
   let idxLast = candles.length - 1;
-  const last: any = candles[idxLast];
-  if (Number.isFinite(Number(last.closeTime)) && Number(last.closeTime) > now) idxLast = Math.max(0, idxLast - 1);
+  const ct = candleCloseTimeMs(candles[idxLast] as any);
+  if (ct != null && ct > now) idxLast = Math.max(0, idxLast - 1);
   return idxLast;
 }
 
@@ -300,27 +340,7 @@ function computeCandleVolSpikeFromCandles(candles: AnyCandle[]) {
 
   const startPrev = idxLast - 20;
 
-  const qvAt = (c: any) => {
-    // 1) quote volume (если есть)
-    const q = Number(
-      c.quoteVolume ??
-      c.quoteVol ??
-      c.q ??
-      c.quote ??
-      c.turnover ??
-      c.amountQuote ??
-      c.quoteAmount ??
-      c.quoteAssetVolume
-    );
-    if (Number.isFinite(q) && q > 0) return q;
-
-    // 2) base volume (если есть) -> переводим в quote через close
-    const v = Number(c.volume ?? c.vol ?? c.baseVolume ?? c.baseVol ?? c.v);
-    const close = Number(c.close ?? c.c);
-    if (Number.isFinite(v) && v > 0 && Number.isFinite(close) && close > 0) return v * close;
-
-    return 0;
-  };
+  const qvAt = (c: any) => candleQuoteVolumeOrEstimate(c);
 
   const lastQv = qvAt((candles as any)[idxLast]);
   if (!(lastQv > 0)) return 0;
@@ -341,27 +361,7 @@ function applyIlliquidVolSpikeFilter(volSpike: number | null, candles: AnyCandle
 
   const startPrev = idxLast - 20;
 
-  const qvAt = (c: any) => {
-    // 1) quote volume (если есть)
-    const q = Number(
-      c.quoteVolume ??
-      c.quoteVol ??
-      c.q ??
-      c.quote ??
-      c.turnover ??
-      c.amountQuote ??
-      c.quoteAmount ??
-      c.quoteAssetVolume
-    );
-    if (Number.isFinite(q) && q > 0) return q;
-
-    // 2) base volume (если есть) -> переводим в quote через close
-    const v = Number(c.volume ?? c.vol ?? c.baseVolume ?? c.baseVol ?? c.v);
-    const close = Number(c.close ?? c.c);
-    if (Number.isFinite(v) && v > 0 && Number.isFinite(close) && close > 0) return v * close;
-
-    return 0;
-  };
+  const qvAt = (c: any) => candleQuoteVolumeOrEstimate(c);
 
   const prevArr = (candles as any).slice(startPrev, idxLast).map(qvAt);
   const sma = prevArr.reduce((a: number, v: number) => a + v, 0) / prevArr.length;
