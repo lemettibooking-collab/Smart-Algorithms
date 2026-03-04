@@ -1,5 +1,5 @@
 declare module "better-sqlite3" {
-  export interface Statement<Bind = unknown, Row = unknown> {
+  export interface Statement<Row = unknown> {
     run(...params: unknown[]): unknown;
     get(...params: unknown[]): Row | undefined;
     all(...params: unknown[]): Row[];

@@ -24,8 +24,8 @@ export default async function SymbolPage({ params }: PageProps) {
   };
 
   if (isValidSymbol(symbol)) {
-    initialCandles = await fetchKlines(symbol, interval as any, limit);
-    initialMetrics = calcMetrics(initialCandles, interval as any);
+    initialCandles = await fetchKlines(symbol, interval, limit);
+    initialMetrics = calcMetrics(initialCandles);
   }
 
   return (

@@ -66,8 +66,7 @@ export function calcVolumeSpike(
 }
 
 export function calcMetrics(
-  candles: Candle[],
-  interval: string
+  candles: Candle[]
 ): SymbolMetrics {
   // ВАЖНО:
   // Если interval = "1h", то:
@@ -91,4 +90,3 @@ export function calcMetrics(
     volumeSpike: calcVolumeSpike(candles, 20),
   };
 }
-

@@ -26,7 +26,7 @@ let ws: WebSocket | null = null;
 const priceMap = new Map<string, PriceSnap>();
 let lastMsgTs = 0;
 
-function num(v: any, fb = 0) {
+function num(v: unknown, fb = 0) {
     const n = Number(v);
     return Number.isFinite(n) ? n : fb;
 }
