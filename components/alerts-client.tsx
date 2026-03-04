@@ -60,6 +60,115 @@ type SignalFilter = (typeof SIGNALS)[number];
 
 type SortBy = "score" | "change" | "change24h" | "spike";
 type Mode = "table" | "events";
+type AlertsPresetId = "conservative" | "balanced" | "scalp";
+type SignalToggleKey = "whale" | "bigMove" | "dump" | "breakout" | "reversal" | "watch";
+type SignalToggles = Record<SignalToggleKey, boolean>;
+type FiltersState = {
+    tf: string;
+    includeCalm: boolean;
+    onlyStrong: boolean;
+    strongScore: number;
+    minScore: number;
+    keep: number;
+    scoreJump: number;
+    cooldownSec: number;
+    signalToggles: SignalToggles;
+    limit: number;
+    dedupe: boolean;
+    sortBy: SortBy;
+};
+type AlertsPreset = {
+    id: AlertsPresetId;
+    label: string;
+    values: Partial<FiltersState>;
+};
+
+const PRESET_ID_KEY = "alerts:presetId";
+const FILTERS_KEY = "alerts:filters";
+const DEFAULT_PRESET_ID: AlertsPresetId = "balanced";
+
+const ALERTS_PRESETS: AlertsPreset[] = [
+    {
+        id: "conservative",
+        label: "Conservative",
+        values: {
+            tf: "1h",
+            includeCalm: false,
+            onlyStrong: true,
+            strongScore: 6,
+            minScore: 5,
+            keep: 50,
+            scoreJump: 2,
+            cooldownSec: 180,
+            signalToggles: { whale: false, bigMove: true, dump: true, breakout: true, reversal: true, watch: false },
+        },
+    },
+    {
+        id: "balanced",
+        label: "Balanced",
+        values: {
+            tf: "15m",
+            includeCalm: false,
+            onlyStrong: true,
+            strongScore: 4,
+            minScore: 3,
+            keep: 80,
+            scoreJump: 1,
+            cooldownSec: 90,
+            signalToggles: { whale: true, bigMove: true, dump: true, breakout: true, reversal: true, watch: false },
+        },
+    },
+    {
+        id: "scalp",
+        label: "Scalp",
+        values: {
+            tf: "5m",
+            includeCalm: false,
+            onlyStrong: false,
+            strongScore: 4,
+            minScore: 2,
+            keep: 120,
+            scoreJump: 0.5,
+            cooldownSec: 60,
+            signalToggles: { whale: true, bigMove: true, dump: false, breakout: true, reversal: true, watch: false },
+        },
+    },
+];
+
+function isPresetId(v: unknown): v is AlertsPresetId {
+    return v === "conservative" || v === "balanced" || v === "scalp";
+}
+
+function getPresetById(id: AlertsPresetId) {
+    return ALERTS_PRESETS.find((p) => p.id === id) ?? ALERTS_PRESETS.find((p) => p.id === DEFAULT_PRESET_ID)!;
+}
+
+function signalFilterToToggles(signalFilter: SignalFilter[]): SignalToggles {
+    const set = new Set(signalFilter);
+    return {
+        whale: set.has("Whale Activity"),
+        bigMove: set.has("Big Move"),
+        dump: set.has("Dump"),
+        breakout: set.has("Breakout"),
+        reversal: set.has("Reversal"),
+        watch: set.has("Watch"),
+    };
+}
+
+function togglesToSignalFilter(toggles: SignalToggles): SignalFilter[] {
+    const out: SignalFilter[] = [];
+    if (toggles.watch) out.push("Watch");
+    if (toggles.whale) out.push("Whale Activity");
+    if (toggles.bigMove) out.push("Big Move");
+    if (toggles.dump) out.push("Dump");
+    if (toggles.breakout) out.push("Breakout");
+    if (toggles.reversal) out.push("Reversal");
+    return out;
+}
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+    return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
+}
 
 function fmtPct(x: number) {
     const n = Number(x ?? 0) || 0;
@@ -102,6 +211,8 @@ export default function AlertsClient() {
 
     // shared filter
     const [signalFilter, setSignalFilter] = useState<SignalFilter[]>([]);
+    const [selectedPresetId, setSelectedPresetId] = useState<AlertsPresetId>(DEFAULT_PRESET_ID);
+    const [pendingPresetId, setPendingPresetId] = useState<AlertsPresetId>(DEFAULT_PRESET_ID);
 
     // events controls
     const [eventsLimit, setEventsLimit] = useState(80);
@@ -115,6 +226,31 @@ export default function AlertsClient() {
     const [err, setErr] = useState<string | null>(null);
 
     const seenEventKeys = useRef<Set<string>>(new Set());
+
+    function applyFiltersState(values: Partial<FiltersState>) {
+        if (typeof values.tf === "string") setTf(values.tf);
+        if (typeof values.includeCalm === "boolean") setIncludeCalm(values.includeCalm);
+        if (typeof values.onlyStrong === "boolean") setOnlyStrong(values.onlyStrong);
+        if (typeof values.strongScore === "number" && Number.isFinite(values.strongScore)) setStrongScore(values.strongScore);
+        if (typeof values.minScore === "number" && Number.isFinite(values.minScore)) setMinScore(values.minScore);
+        if (typeof values.keep === "number" && Number.isFinite(values.keep)) setEventsLimit(values.keep);
+        if (typeof values.scoreJump === "number" && Number.isFinite(values.scoreJump)) setScoreJump(values.scoreJump);
+        if (typeof values.cooldownSec === "number" && Number.isFinite(values.cooldownSec)) setCooldownSec(values.cooldownSec);
+        if (typeof values.limit === "number" && Number.isFinite(values.limit)) setLimit(values.limit);
+        if (typeof values.dedupe === "boolean") setDedupe(values.dedupe);
+        if (values.sortBy === "score" || values.sortBy === "change" || values.sortBy === "change24h" || values.sortBy === "spike") {
+            setSortBy(values.sortBy);
+        }
+        if (values.signalToggles) {
+            setSignalFilter(togglesToSignalFilter(values.signalToggles));
+        }
+    }
+
+    function applyPresetById(id: AlertsPresetId) {
+        const preset = getPresetById(id);
+        applyFiltersState(preset.values);
+        setSelectedPresetId(id);
+    }
 
     function toggleSignal(s: SignalFilter) {
         setSignalFilter((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
@@ -215,6 +351,86 @@ export default function AlertsClient() {
     }
 
     useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const storedPresetRaw = window.localStorage.getItem(PRESET_ID_KEY);
+        const storedPreset = isPresetId(storedPresetRaw) ? storedPresetRaw : DEFAULT_PRESET_ID;
+        setSelectedPresetId(storedPreset);
+        setPendingPresetId(storedPreset);
+
+        const rawFilters = window.localStorage.getItem(FILTERS_KEY);
+        if (!rawFilters) {
+            applyPresetById(DEFAULT_PRESET_ID);
+            setPendingPresetId(DEFAULT_PRESET_ID);
+            window.localStorage.setItem(PRESET_ID_KEY, DEFAULT_PRESET_ID);
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(rawFilters) as unknown;
+            const o = asRecord(parsed);
+            if (!o) {
+                applyPresetById(DEFAULT_PRESET_ID);
+                setPendingPresetId(DEFAULT_PRESET_ID);
+                window.localStorage.setItem(PRESET_ID_KEY, DEFAULT_PRESET_ID);
+                return;
+            }
+
+            const st: Partial<FiltersState> = {};
+            if (typeof o.tf === "string") st.tf = o.tf;
+            if (typeof o.includeCalm === "boolean") st.includeCalm = o.includeCalm;
+            if (typeof o.onlyStrong === "boolean") st.onlyStrong = o.onlyStrong;
+            if (typeof o.strongScore === "number") st.strongScore = o.strongScore;
+            if (typeof o.minScore === "number") st.minScore = o.minScore;
+            if (typeof o.keep === "number") st.keep = o.keep;
+            if (typeof o.scoreJump === "number") st.scoreJump = o.scoreJump;
+            if (typeof o.cooldownSec === "number") st.cooldownSec = o.cooldownSec;
+            if (typeof o.limit === "number") st.limit = o.limit;
+            if (typeof o.dedupe === "boolean") st.dedupe = o.dedupe;
+            if (o.sortBy === "score" || o.sortBy === "change" || o.sortBy === "change24h" || o.sortBy === "spike") {
+                st.sortBy = o.sortBy;
+            }
+            const togglesObj = asRecord(o.signalToggles);
+            if (togglesObj) {
+                st.signalToggles = {
+                    whale: !!togglesObj.whale,
+                    bigMove: !!togglesObj.bigMove,
+                    dump: !!togglesObj.dump,
+                    breakout: !!togglesObj.breakout,
+                    reversal: !!togglesObj.reversal,
+                    watch: !!togglesObj.watch,
+                };
+            }
+
+            applyFiltersState(st);
+        } catch {
+            applyPresetById(DEFAULT_PRESET_ID);
+            setPendingPresetId(DEFAULT_PRESET_ID);
+            window.localStorage.setItem(PRESET_ID_KEY, DEFAULT_PRESET_ID);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const filters: FiltersState = {
+            tf,
+            includeCalm,
+            onlyStrong,
+            strongScore,
+            minScore,
+            keep: eventsLimit,
+            scoreJump,
+            cooldownSec,
+            signalToggles: signalFilterToToggles(signalFilter),
+            limit,
+            dedupe,
+            sortBy,
+        };
+        window.localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
+    }, [tf, includeCalm, onlyStrong, strongScore, minScore, eventsLimit, scoreJump, cooldownSec, signalFilter, limit, dedupe, sortBy]);
+
+    useEffect(() => {
         // при смене режима — делаем первичную загрузку
         if (mode === "events") loadEvents();
         else loadTable();
@@ -268,6 +484,38 @@ export default function AlertsClient() {
                         Events
                     </button>
                 </div>
+
+                <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-1">
+                    {ALERTS_PRESETS.map((p) => (
+                        <button
+                            key={p.id}
+                            type="button"
+                            className={[
+                                "rounded-md border px-2 py-1 text-sm transition",
+                                pendingPresetId === p.id
+                                    ? "border-white/20 bg-white/10 text-white/90"
+                                    : "border-transparent text-white/70 hover:text-white/90",
+                            ].join(" ")}
+                            onClick={() => setPendingPresetId(p.id)}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                    <button
+                        type="button"
+                        className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-sm text-white/80 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
+                        onClick={() => {
+                            applyPresetById(pendingPresetId);
+                            if (typeof window !== "undefined") {
+                                window.localStorage.setItem(PRESET_ID_KEY, pendingPresetId);
+                            }
+                        }}
+                    >
+                        Apply preset
+                    </button>
+                </div>
+
+                <span className="text-xs text-white/50">Preset: {getPresetById(selectedPresetId).label}</span>
 
                 <select
                     className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
