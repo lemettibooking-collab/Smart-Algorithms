@@ -670,6 +670,7 @@ export async function GET(req: Request) {
         .slice(0, TOP_SPIKE_N);
 
       const spikeBySymbol = new Map<string, number | null>();
+      const spikeCandlesBySymbol = new Map<string, number>();
 
       const spikeConcurrency = exchange === "mexc" ? 3 : 6;
 
@@ -677,6 +678,7 @@ export async function GET(req: Request) {
         const sym = tickerSymbol(t);
         try {
           const candles = (await fetchKlinesCached(sym, spikeInterval, spikeKlinesLimit)) as AnyCandle[];
+          spikeCandlesBySymbol.set(sym, candles.length);
           const spike = computeCandleVolSpikeFromCandles(candles, spikeMode);
           let volSpike: number | null = spike;
 
@@ -734,6 +736,28 @@ export async function GET(req: Request) {
       // сортируем по score как и раньше
       rowsAll.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
       const rows = rowsAll.slice(0, limitN);
+      const spikeCountLimit = Math.min(spikeNeed, 30);
+
+      const needCountSymbols = rows
+        .map((r) => r.symbol)
+        .filter((sym) => !spikeCandlesBySymbol.has(sym));
+
+      await mapLimit(needCountSymbols, spikeConcurrency, async (sym) => {
+        try {
+          const candles = (await fetchKlinesCached(sym, spikeInterval, spikeCountLimit)) as AnyCandle[];
+          spikeCandlesBySymbol.set(sym, candles.length);
+        } catch {
+          spikeCandlesBySymbol.set(sym, 0);
+        }
+      });
+
+      for (const r of rows) {
+        const spikeCandles = spikeCandlesBySymbol.get(r.symbol) ?? 0;
+        r.spikeCandles = spikeCandles;
+        r.spikeNeed = spikeNeed;
+        r.spikeMode = spikeMode;
+        r.newListing = spikeCandles > 0 && spikeCandles < spikeNeed;
+      }
 
       const rowsWithIcons = await Promise.all(rows.map(attachFallbackIcon));
       let rowsFinal = rowsWithIcons;
