@@ -2,209 +2,27 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { EventsFeed, useEventsFeed } from "@/src/widgets/events-feed";
+import { AlertsTable, useAlerts } from "@/src/widgets/alerts-table";
+import {
+    ALERTS_PRESETS,
+    DEFAULT_PRESET_ID,
+    FILTERS_KEY,
+    PRESET_ID_KEY,
+    SIGNALS,
+    getPresetById,
+    isPresetId,
+    signalFilterToToggles,
+    togglesToSignalFilter,
+    type AlertsPresetId,
+    type FiltersState,
+    type SignalFilter,
+    type SortBy,
+} from "@/src/features/alerts-presets";
 
-type Exchange = "binance" | "mexc";
-
-type AlertRow = {
-    id?: string;
-    bucketTs?: number;
-    ts: number;
-    tf: string;
-
-    baseAsset: string;
-    exchange: Exchange;
-    symbol: string;
-
-    price: number;
-    score: number;
-    signal: string;
-
-    changePercent: number;
-    change24hPercent: number;
-
-    volSpike: number | null;
-    quoteVol24h?: number;
-
-    marketCapRaw: number | null;
-    marketCap?: string;
-
-    logoUrl?: string | null;
-    iconUrl?: string | null;
-
-    mergedFrom?: Array<{ exchange: Exchange; symbol: string; score: number }>;
-};
-
-type Wall = {
-    price: number;
-    notional: number;
-    distancePct: number;
-    status: "NEW" | "HOLD" | "EATING" | "REMOVED";
-};
-
-type WallsResponse = {
-    ts: number;
-    data: Record<string, { bid?: Wall; ask?: Wall }>;
-};
-
-type AlertsResponse = {
-    tf: string;
-    ts: number;
-    data: AlertRow[];
-    sources?: unknown;
-    error?: string;
-};
-
-const SIGNALS = ["Watch", "Whale Activity", "Big Move", "Dump", "Breakout", "Reversal"] as const;
-type SignalFilter = (typeof SIGNALS)[number];
-
-type SortBy = "score" | "change" | "change24h" | "spike";
 type Mode = "table" | "events";
-type AlertsPresetId = "conservative" | "balanced" | "scalp";
-type SignalToggleKey = "whale" | "bigMove" | "dump" | "breakout" | "reversal" | "watch";
-type SignalToggles = Record<SignalToggleKey, boolean>;
-type FiltersState = {
-    tf: string;
-    includeCalm: boolean;
-    onlyStrong: boolean;
-    strongScore: number;
-    minScore: number;
-    keep: number;
-    scoreJump: number;
-    cooldownSec: number;
-    signalToggles: SignalToggles;
-    limit: number;
-    dedupe: boolean;
-    sortBy: SortBy;
-};
-type AlertsPreset = {
-    id: AlertsPresetId;
-    label: string;
-    values: Partial<FiltersState>;
-};
-
-const PRESET_ID_KEY = "alerts:presetId";
-const FILTERS_KEY = "alerts:filters";
-const DEFAULT_PRESET_ID: AlertsPresetId = "balanced";
-
-const ALERTS_PRESETS: AlertsPreset[] = [
-    {
-        id: "conservative",
-        label: "Conservative",
-        values: {
-            tf: "1h",
-            includeCalm: false,
-            onlyStrong: true,
-            strongScore: 6,
-            minScore: 5,
-            keep: 50,
-            scoreJump: 2,
-            cooldownSec: 180,
-            signalToggles: { whale: false, bigMove: true, dump: true, breakout: true, reversal: true, watch: false },
-        },
-    },
-    {
-        id: "balanced",
-        label: "Balanced",
-        values: {
-            tf: "15m",
-            includeCalm: false,
-            onlyStrong: true,
-            strongScore: 4,
-            minScore: 3,
-            keep: 80,
-            scoreJump: 1,
-            cooldownSec: 90,
-            signalToggles: { whale: true, bigMove: true, dump: true, breakout: true, reversal: true, watch: false },
-        },
-    },
-    {
-        id: "scalp",
-        label: "Scalp",
-        values: {
-            tf: "5m",
-            includeCalm: false,
-            onlyStrong: false,
-            strongScore: 4,
-            minScore: 2,
-            keep: 120,
-            scoreJump: 0.5,
-            cooldownSec: 60,
-            signalToggles: { whale: true, bigMove: true, dump: false, breakout: true, reversal: true, watch: false },
-        },
-    },
-];
-
-function isPresetId(v: unknown): v is AlertsPresetId {
-    return v === "conservative" || v === "balanced" || v === "scalp";
-}
-
-function getPresetById(id: AlertsPresetId) {
-    return ALERTS_PRESETS.find((p) => p.id === id) ?? ALERTS_PRESETS.find((p) => p.id === DEFAULT_PRESET_ID)!;
-}
-
-function signalFilterToToggles(signalFilter: SignalFilter[]): SignalToggles {
-    const set = new Set(signalFilter);
-    return {
-        whale: set.has("Whale Activity"),
-        bigMove: set.has("Big Move"),
-        dump: set.has("Dump"),
-        breakout: set.has("Breakout"),
-        reversal: set.has("Reversal"),
-        watch: set.has("Watch"),
-    };
-}
-
-function togglesToSignalFilter(toggles: SignalToggles): SignalFilter[] {
-    const out: SignalFilter[] = [];
-    if (toggles.watch) out.push("Watch");
-    if (toggles.whale) out.push("Whale Activity");
-    if (toggles.bigMove) out.push("Big Move");
-    if (toggles.dump) out.push("Dump");
-    if (toggles.breakout) out.push("Breakout");
-    if (toggles.reversal) out.push("Reversal");
-    return out;
-}
 
 function asRecord(v: unknown): Record<string, unknown> | null {
     return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
-}
-
-function fmtPct(x: number) {
-    const n = Number(x ?? 0) || 0;
-    const s = n >= 0 ? "+" : "";
-    return `${s}${n.toFixed(2)}%`;
-}
-
-function fmtPrice(x: number) {
-    const n = Number(x ?? 0) || 0;
-    if (n === 0) return "0";
-    if (n >= 1000) return n.toFixed(2);
-    if (n >= 1) return n.toFixed(4);
-    return n.toPrecision(4);
-}
-
-function fmtCompact(n: number | null | undefined) {
-    const v = Number(n ?? 0);
-    if (!Number.isFinite(v) || v <= 0) return "—";
-    if (v >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
-    if (v >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
-    if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
-    if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
-    return v.toFixed(0);
-}
-
-function errMsg(e: unknown) {
-    if (e instanceof Error) return e.message;
-    if (typeof e === "string") return e;
-    return "Failed";
-}
-
-function BinanceMiniIcon({ className }: { className?: string }) {
-    return (
-        <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-            <path fill="currentColor" d="M12 2l3.5 3.5L12 9 8.5 5.5 12 2zm6.5 6.5L22 12l-3.5 3.5L15 12l3.5-3.5zM12 15l3.5 3.5L12 22l-3.5-3.5L12 15zM2 12l3.5-3.5L9 12l-3.5 3.5L2 12zm10-4l4 4-4 4-4-4 4-4z" />
-        </svg>
-    );
 }
 
 export default function AlertsClient() {
@@ -236,11 +54,19 @@ export default function AlertsClient() {
     const [scoreJump, setScoreJump] = useState(1.0);
     const [cooldownSec, setCooldownSec] = useState(90);
 
-    const [loading, setLoading] = useState(false);
-    const [rows, setRows] = useState<AlertRow[]>([]);
-    const [wallsMap, setWallsMap] = useState<Record<string, { bid?: Wall; ask?: Wall }>>({});
-    const [sources, setSources] = useState<unknown>(null);
-    const [err, setErr] = useState<string | null>(null);
+    const alertsTable = useAlerts({
+        enabled: mode === "table",
+        auto,
+        tf,
+        includeCalm,
+        onlyStrong,
+        strongScore,
+        minScore,
+        limit,
+        dedupe,
+        sortBy,
+        signalFilter,
+    });
     const eventsFeed = useEventsFeed({
         enabled: mode === "events",
         auto,
@@ -285,60 +111,9 @@ export default function AlertsClient() {
         setSignalFilter((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
     }
 
-    const tableQuery = useMemo(() => {
-        const p = new URLSearchParams();
-        p.set("tf", tf);
-        p.set("includeCalm", includeCalm ? "1" : "0");
-        p.set("minScore", String(onlyStrong ? strongScore : minScore));
-        p.set("limit", String(limit));
-        p.set("dedupe", dedupe ? "1" : "0");
-        p.set("sort", sortBy);
-        if (signalFilter.length) p.set("signals", signalFilter.join(","));
-        return `/api/alerts?${p.toString()}`;
-    }, [tf, includeCalm, onlyStrong, strongScore, minScore, limit, dedupe, sortBy, signalFilter]);
-
-    async function loadTable() {
-        setLoading(true);
-        setErr(null);
-        try {
-            const r = await fetch(tableQuery, { cache: "no-store" });
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const j: AlertsResponse = await r.json();
-            if (j.error) setErr(j.error);
-            const nextRows = Array.isArray(j.data) ? j.data : [];
-            setRows(nextRows);
-            setSources(j.sources ?? null);
-
-            const symbols = Array.from(new Set(nextRows.map((x) => String(x.symbol ?? "").trim().toUpperCase()).filter(Boolean))).slice(0, 50);
-            if (symbols.length === 0) {
-                setWallsMap({});
-            } else {
-                try {
-                    const wr = await fetch(`/api/walls?symbols=${encodeURIComponent(symbols.join(","))}`, { cache: "no-store" });
-                    if (wr.ok) {
-                        const wj = (await wr.json()) as WallsResponse;
-                        const data = (typeof wj?.data === "object" && wj?.data !== null ? wj.data : {}) as Record<string, { bid?: Wall; ask?: Wall }>;
-                        setWallsMap(data);
-                    } else {
-                        setWallsMap({});
-                    }
-                } catch {
-                    setWallsMap({});
-                }
-            }
-        } catch (e: unknown) {
-            setErr(errMsg(e));
-            setRows([]);
-            setWallsMap({});
-            setSources(null);
-        } finally {
-            setLoading(false);
-        }
-    }
-
     function refresh() {
         if (mode === "events") return eventsFeed.refresh();
-        return loadTable();
+        return alertsTable.refresh();
     }
 
     function clearEvents() {
@@ -425,24 +200,11 @@ export default function AlertsClient() {
         window.localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
     }, [tf, includeCalm, onlyStrong, strongScore, minScore, eventsLimit, scoreJump, cooldownSec, signalFilter, limit, dedupe, sortBy]);
 
-    useEffect(() => {
-        // при смене режима — делаем первичную загрузку
-        if (mode === "table") loadTable();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mode, tableQuery]);
-
-    useEffect(() => {
-        if (!auto || mode !== "table") return;
-        const id = setInterval(() => refresh(), 5000);
-        return () => clearInterval(id);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [auto, mode, tableQuery]);
-
     const kpi = useMemo(() => {
         const eventRows = eventsFeed.events;
-        const sourceForMode = mode === "events" ? eventsFeed.sources : sources;
-        const total = mode === "events" ? eventRows.length : rows.length;
-        const nonCalm = (mode === "events" ? eventRows : rows).filter((r) => String(r.signal).toLowerCase() !== "calm").length;
+        const sourceForMode = mode === "events" ? eventsFeed.sources : alertsTable.sources;
+        const total = mode === "events" ? eventRows.length : alertsTable.rows.length;
+        const nonCalm = (mode === "events" ? eventRows : alertsTable.rows).filter((r) => String(r.signal).toLowerCase() !== "calm").length;
         const src = (typeof sourceForMode === "object" && sourceForMode !== null ? sourceForMode : null) as Record<string, unknown> | null;
         const b = (typeof src?.binance === "object" && src?.binance !== null ? src.binance : null) as Record<string, unknown> | null;
         const m = (typeof src?.mexc === "object" && src?.mexc !== null ? src.mexc : null) as Record<string, unknown> | null;
@@ -452,10 +214,10 @@ export default function AlertsClient() {
         const wsM = m?.ws;
 
         return { total, nonCalm, degradedAny, wsB, wsM };
-    }, [mode, eventsFeed.events, eventsFeed.sources, rows, sources]);
+    }, [mode, eventsFeed.events, eventsFeed.sources, alertsTable.rows, alertsTable.sources]);
 
-    const displayErr = mode === "events" ? eventsFeed.err : err;
-    const displayLoading = mode === "events" ? eventsFeed.loading : loading;
+    const displayErr = mode === "events" ? eventsFeed.err : alertsTable.err;
+    const displayLoading = mode === "events" ? eventsFeed.loading : alertsTable.loading;
 
     return (
         <div className="space-y-3 text-sm text-white/80">
@@ -649,11 +411,7 @@ export default function AlertsClient() {
                 {mode === "table" ? (
                     <button
                         className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/80 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
-                        onClick={() => {
-                            setRows([]);
-                            setWallsMap({});
-                            setErr(null);
-                        }}
+                        onClick={() => alertsTable.clearRows()}
                         type="button"
                     >
                         Clear table
@@ -724,96 +482,7 @@ export default function AlertsClient() {
             {mode === "events" ? (
                 <EventsFeed events={eventsFeed.events} loading={displayLoading} />
             ) : (
-                <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur-md shadow-sm">
-                    <div className="max-h-[70vh] overflow-auto">
-                        <table className="w-full text-sm text-white/80">
-                            <thead className="sticky top-0 bg-white/5 text-sm font-medium text-white/80">
-                                <tr className="text-left">
-                                    <th className="px-4 py-3">Asset</th>
-                                    <th className="px-4 py-3">Exch</th>
-                                    <th className="px-4 py-3">Price</th>
-                                    <th className="px-4 py-3">Δ(tf)</th>
-                                    <th className="px-4 py-3">24h%</th>
-                                    <th className="px-4 py-3">Vol 24h</th>
-                                    <th className="px-4 py-3">Densities</th>
-                                    <th className="px-4 py-3">Score</th>
-                                    <th className="px-4 py-3">Signal</th>
-                                    <th className="px-4 py-3">VolSpike</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-sm text-white/80 leading-5">
-                                {rows.map((r) => (
-                                    <tr key={r.id ?? `${r.baseAsset}:${r.exchange}:${r.symbol}`} className="border-t border-white/5 hover:bg-white/5">
-                                        <td className="px-4 py-3">
-                                            <div className="flex items-center gap-2">
-                                                {(r.logoUrl || r.iconUrl) ? (
-                                                    // eslint-disable-next-line @next/next/no-img-element
-                                                    <img
-                                                        src={(r.logoUrl || r.iconUrl) as string}
-                                                        alt={r.baseAsset}
-                                                        className="h-5 w-5 rounded-full"
-                                                        loading="lazy"
-                                                    />
-                                                ) : (
-                                                    <div className="h-5 w-5 rounded-full border border-white/10" />
-                                                )}
-                                                <div className="font-medium">{r.baseAsset}</div>
-                                                <div className="text-xs text-white/50">{r.symbol}</div>
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-3">{r.exchange}</td>
-                                        <td className="px-4 py-3">{fmtPrice(r.price)}</td>
-                                        <td className="px-4 py-3">{fmtPct(r.changePercent)}</td>
-                                        <td className="px-4 py-3">{fmtPct(r.change24hPercent)}</td>
-                                        <td className="px-4 py-3">{fmtCompact(r.quoteVol24h)}</td>
-                                        <td className="px-4 py-3 text-xs">
-                                            {(() => {
-                                                const w = wallsMap[r.symbol];
-                                                const badge = (status: Wall["status"]) => {
-                                                    if (status === "NEW") return "rounded border border-emerald-400/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300";
-                                                    if (status === "EATING") return "rounded border border-amber-400/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300";
-                                                    if (status === "REMOVED") return "rounded border border-red-400/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300";
-                                                    return "rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] text-white/70";
-                                                };
-                                                if (!w?.bid && !w?.ask) return <span className="text-white/50">—</span>;
-                                                return (
-                                                    <div className="relative space-y-1 pl-6">
-                                                        <span
-                                                            className="absolute left-1 top-1 inline-flex h-4 w-4 items-center justify-center rounded border border-white/10 bg-white/5"
-                                                            title="Order book walls from Binance"
-                                                        >
-                                                            <BinanceMiniIcon className="h-3 w-3 text-yellow-400/90" />
-                                                        </span>
-                                                        {w.bid ? (
-                                                            <div className="flex items-center gap-1">
-                                                                <span>BID {fmtCompact(w.bid.notional)} @ -{w.bid.distancePct.toFixed(2)}%</span>
-                                                                <span className={badge(w.bid.status)}>{w.bid.status}</span>
-                                                            </div>
-                                                        ) : null}
-                                                        {w.ask ? (
-                                                            <div className="flex items-center gap-1">
-                                                                <span>ASK {fmtCompact(w.ask.notional)} @ +{w.ask.distancePct.toFixed(2)}%</span>
-                                                                <span className={badge(w.ask.status)}>{w.ask.status}</span>
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                );
-                                            })()}
-                                        </td>
-                                        <td className="px-4 py-3">{(r.score ?? 0).toFixed(2)}</td>
-                                        <td className="px-4 py-3">{r.signal}</td>
-                                        <td className="px-4 py-3">{r.volSpike == null ? "—" : `${r.volSpike.toFixed(2)}x`}</td>
-                                    </tr>
-                                ))}
-                                {!rows.length && !loading ? (
-                                    <tr>
-                                        <td className="p-3 text-sm opacity-70" colSpan={10}>No data</td>
-                                    </tr>
-                                ) : null}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                <AlertsTable rows={alertsTable.rows} wallsMap={alertsTable.wallsMap} loading={displayLoading} />
             )}
         </div>
     );
