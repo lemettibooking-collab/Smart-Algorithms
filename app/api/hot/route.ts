@@ -581,6 +581,8 @@ export async function GET(req: Request) {
     const fetchKlinesCached = exchange === "mexc" ? mexc.fetchKlinesCached : fetchKlinesCachedBinance;
     const isUsdtSpotSymbol = exchange === "mexc" ? mexc.isUsdtSpotSymbol : isUsdtSpotSymbolBinance;
     const isValidInterval = exchange === "mexc" ? mexc.isValidInterval : isValidIntervalBinance;
+    const klinesFetchStats = { cacheHit: 0, inFlightHit: 0, networkFetch: 0 };
+    const klinesFetchOpts = { allowOpenCandleRefresh: true, throttleMs: 7_000, stats: klinesFetchStats };
 
     const mexcBaseBySymbol = new Map<string, string>();
     if (exchange === "mexc") {
@@ -677,7 +679,7 @@ export async function GET(req: Request) {
       await mapLimit(topForSpike, spikeConcurrency, async (t) => {
         const sym = tickerSymbol(t);
         try {
-          const candles = (await fetchKlinesCached(sym, spikeInterval, spikeKlinesLimit)) as AnyCandle[];
+          const candles = (await fetchKlinesCached(sym, spikeInterval, spikeKlinesLimit, klinesFetchOpts)) as AnyCandle[];
           spikeCandlesBySymbol.set(sym, candles.length);
           const spike = computeCandleVolSpikeFromCandles(candles, spikeMode);
           let volSpike: number | null = spike;
@@ -744,7 +746,7 @@ export async function GET(req: Request) {
 
       await mapLimit(needCountSymbols, spikeConcurrency, async (sym) => {
         try {
-          const candles = (await fetchKlinesCached(sym, spikeInterval, spikeCountLimit)) as AnyCandle[];
+          const candles = (await fetchKlinesCached(sym, spikeInterval, spikeCountLimit, klinesFetchOpts)) as AnyCandle[];
           spikeCandlesBySymbol.set(sym, candles.length);
         } catch {
           spikeCandlesBySymbol.set(sym, 0);
@@ -786,6 +788,10 @@ export async function GET(req: Request) {
         },
       };
 
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("[hot:klines-fetch]", JSON.stringify({ exchange, tf, mode: "ticker", ...klinesFetchStats }));
+      }
+
       hotCache.set(cacheKey, payload, ttlMs);
       return payload;
     }
@@ -810,7 +816,7 @@ export async function GET(req: Request) {
 
       try {
         const limit = candleSpike ? Math.max(candleSpikeLimit + 1, spikeWindow + 2, 30) : 2;
-        const candles = (await fetchKlinesCached(symbol, tf, limit)) as AnyCandle[];
+        const candles = (await fetchKlinesCached(symbol, tf, limit, klinesFetchOpts)) as AnyCandle[];
 
         const change24hPercent = compute24hPercent(openPrice24h, currentPriceWs);
 
@@ -968,6 +974,10 @@ export async function GET(req: Request) {
         spikeWindow,
       },
     };
+
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("[hot:klines-fetch]", JSON.stringify({ exchange, tf, mode: "klines", ...klinesFetchStats }));
+    }
 
     hotCache.set(cacheKey, payload, ttlMs);
     return payload;

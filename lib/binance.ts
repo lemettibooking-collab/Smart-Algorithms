@@ -58,8 +58,29 @@ function klinesTtlMs(tf: string) {
   return 15_000;
 }
 
+type KlinesCacheEntry = {
+  candles: Candle[];
+  lastCloseTimeMs: number;
+  lastFetchMs: number;
+};
+
+export type KlinesFetchStats = {
+  cacheHit?: number;
+  inFlightHit?: number;
+  networkFetch?: number;
+};
+
+type FetchKlinesCachedOpts = {
+  allowOpenCandleRefresh?: boolean;
+  throttleMs?: number;
+  stats?: KlinesFetchStats;
+};
+
+const OPEN_CANDLE_REFRESH_THROTTLE_MS = 7_000;
+const KLINES_CACHE_TTL_MS = 6 * 60 * 60_000;
+
 // defaultTtlMs тут уже не так важен — мы будем передавать ttlMs на set()
-const klinesCache = new TTLCache<Candle[]>(30_000, 8000);
+const klinesCache = new TTLCache<KlinesCacheEntry>(30_000, 8000);
 const klinesInFlight = new InFlight<Candle[]>();
 
 export function isValidInterval(tf: string) {
@@ -140,24 +161,85 @@ export async function fetchKlines(symbol: string, interval: string, limitN: numb
   });
 }
 
+function normMs(v: unknown): number {
+  const raw = Number(v);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return raw < 1e12 ? raw * 1000 : raw;
+}
+
+function lastCandleCloseTimeMs(candles: Candle[]): number {
+  if (!Array.isArray(candles) || candles.length === 0) return 0;
+  return normMs(candles[candles.length - 1]?.closeTime);
+}
+
+function devLogKlinesCache(event: string, payload: Record<string, unknown>) {
+  if (process.env.NODE_ENV === "production") return;
+  console.debug("[klines-cache:binance]", JSON.stringify({ event, ...payload }));
+}
+
 /**
  * Cached + in-flight dedupe + concurrency limit
  * ✅ TTL зависит от TF, чтобы 1m/5m/15m не “устаревали” и проценты совпадали с реальностью.
  */
-export async function fetchKlinesCached(symbol: string, interval: string, limitN: number) {
+export async function fetchKlinesCached(symbol: string, interval: string, limitN: number, opts?: FetchKlinesCachedOpts) {
   const tf = interval.trim();
   const key = `k:${symbol}:${tf}:${limitN}`;
+  const now = Date.now();
+  const throttleMs = opts?.throttleMs ?? OPEN_CANDLE_REFRESH_THROTTLE_MS;
+  const allowOpenCandleRefresh = opts?.allowOpenCandleRefresh ?? false;
+  const stats = opts?.stats;
 
   const cached = klinesCache.get(key);
-  if (cached) return cached;
+  if (cached?.candles) {
+    const candleUnchanged = now < cached.lastCloseTimeMs;
+    const openThrottle = now - cached.lastFetchMs < throttleMs;
+    const canUseCached = candleUnchanged ? (!allowOpenCandleRefresh || openThrottle) : false;
+    if (canUseCached) {
+      if (stats) stats.cacheHit = (stats.cacheHit ?? 0) + 1;
+      devLogKlinesCache("hit", {
+        key,
+        candleUnchanged,
+        lastCloseTimeMs: cached.lastCloseTimeMs,
+        now,
+        openThrottle,
+      });
+      return cached.candles;
+    }
+
+    devLogKlinesCache("stale", {
+      key,
+      candleUnchanged,
+      lastCloseTimeMs: cached.lastCloseTimeMs,
+      now,
+      openThrottle,
+      allowOpenCandleRefresh,
+    });
+  } else {
+    devLogKlinesCache("miss", { key });
+  }
 
   const inflight = klinesInFlight.get(key);
-  if (inflight) return inflight;
+  if (inflight) {
+    if (stats) stats.inFlightHit = (stats.inFlightHit ?? 0) + 1;
+    return inflight;
+  }
 
   const p = limit(async () => {
+    if (stats) stats.networkFetch = (stats.networkFetch ?? 0) + 1;
     const candles = await fetchKlines(symbol, tf, limitN);
-    // ✅ динамический TTL
-    klinesCache.set(key, candles, klinesTtlMs(tf));
+    const closeMs = lastCandleCloseTimeMs(candles);
+    const entry: KlinesCacheEntry = {
+      candles,
+      lastCloseTimeMs: closeMs > 0 ? closeMs : now + klinesTtlMs(tf),
+      lastFetchMs: Date.now(),
+    };
+    // ✅ candle-aware: TTL нужен только как "мягкая" очистка памяти
+    klinesCache.set(key, entry, KLINES_CACHE_TTL_MS);
+    devLogKlinesCache("refresh", {
+      key,
+      lastCloseTimeMs: entry.lastCloseTimeMs,
+      candles: candles.length,
+    });
     return candles;
   });
 
