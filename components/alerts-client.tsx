@@ -221,14 +221,16 @@ export default function AlertsClient() {
     const displayLoading = mode === "events" ? eventsFeed.loading : alertsTable.loading;
 
     return (
-        <div className="space-y-3 text-sm text-white/80">
+        <div className="space-y-3 text-sm text-[var(--muted)] dark:text-white/80">
             {/* Controls */}
-            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-slate-900/40 p-3 backdrop-blur-md shadow-sm">
-                <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-1">
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--controlsBg)] p-3 shadow-[var(--shadowSm)] dark:border-white/10 dark:bg-[var(--panel)]">
+                <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-1 dark:border-white/10 dark:bg-white/5">
                     <button
                         className={[
                             "rounded-md px-2 py-1 text-sm transition",
-                            mode === "table" ? "bg-white/10 text-white/90" : "text-white/70 hover:text-white/90",
+                            mode === "table"
+                                ? "bg-[var(--panel2)] text-[var(--text)] dark:bg-white/10 dark:text-white/90"
+                                : "text-[var(--muted)] hover:text-[var(--text)] dark:text-white/70 dark:hover:text-white/90",
                         ].join(" ")}
                         onClick={() => setMode("table")}
                         type="button"
@@ -238,7 +240,9 @@ export default function AlertsClient() {
                     <button
                         className={[
                             "rounded-md px-2 py-1 text-sm transition",
-                            mode === "events" ? "bg-white/10 text-white/90" : "text-white/70 hover:text-white/90",
+                            mode === "events"
+                                ? "bg-[var(--panel2)] text-[var(--text)] dark:bg-white/10 dark:text-white/90"
+                                : "text-[var(--muted)] hover:text-[var(--text)] dark:text-white/70 dark:hover:text-white/90",
                         ].join(" ")}
                         onClick={() => setMode("events")}
                         type="button"
@@ -247,7 +251,7 @@ export default function AlertsClient() {
                     </button>
                 </div>
 
-                <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-1">
+                <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-1 dark:border-white/10 dark:bg-white/5">
                     {ALERTS_PRESETS.map((p) => (
                         <button
                             key={p.id}
@@ -255,8 +259,8 @@ export default function AlertsClient() {
                             className={[
                                 "rounded-md border px-2 py-1 text-sm transition",
                                 pendingPresetId === p.id
-                                    ? "border-white/20 bg-white/10 text-white/90"
-                                    : "border-transparent text-white/70 hover:text-white/90",
+                                    ? "border-[var(--border)] bg-[var(--panel2)] text-[var(--text)] dark:border-white/20 dark:bg-white/10 dark:text-white/90"
+                                    : "border-transparent text-[var(--muted)] hover:text-[var(--text)] dark:text-white/70 dark:hover:text-white/90",
                             ].join(" ")}
                             onClick={() => setPendingPresetId(p.id)}
                         >
@@ -265,7 +269,7 @@ export default function AlertsClient() {
                     ))}
                     <button
                         type="button"
-                        className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-sm text-white/80 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
+                        className="rounded-md border border-[var(--border)] bg-[var(--panel2)] px-2 py-1 text-sm text-[var(--text)] hover:bg-[var(--hover)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10 dark:focus:ring-white/20"
                         onClick={() => {
                             applyPresetById(pendingPresetId);
                             if (typeof window !== "undefined") {
@@ -277,10 +281,10 @@ export default function AlertsClient() {
                     </button>
                 </div>
 
-                <span className="text-xs text-white/50">Preset: {getPresetById(selectedPresetId).label}</span>
+                <span className="text-xs text-[var(--muted2)] dark:text-white/50">Preset: {getPresetById(selectedPresetId).label}</span>
 
                 <select
-                    className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
+                    className="rounded-lg border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[var(--text)] placeholder:text-[var(--muted2)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:placeholder:text-white/40 dark:focus:ring-white/20"
                     value={tf}
                     onChange={(e) => setTf(e.target.value)}
                 >
@@ -289,20 +293,20 @@ export default function AlertsClient() {
                     ))}
                 </select>
 
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 text-sm text-[var(--muted)] dark:text-white/80">
                     <input type="checkbox" checked={includeCalm} onChange={(e) => setIncludeCalm(e.target.checked)} />
                     include Calm
                 </label>
 
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 text-sm text-[var(--muted)] dark:text-white/80">
                     <input type="checkbox" checked={onlyStrong} onChange={(e) => setOnlyStrong(e.target.checked)} />
                     only strong
                 </label>
 
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 text-sm text-[var(--muted)] dark:text-white/80">
                     strongScore
                     <input
-                        className="w-20 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20 disabled:opacity-50"
+                        className="w-20 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[var(--text)] placeholder:text-[var(--muted2)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:placeholder:text-white/40 dark:focus:ring-white/20"
                         type="number"
                         step="0.1"
                         value={strongScore}
@@ -311,10 +315,10 @@ export default function AlertsClient() {
                     />
                 </label>
 
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 text-sm text-[var(--muted)] dark:text-white/80">
                     minScore
                     <input
-                        className="w-20 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20 disabled:opacity-50"
+                        className="w-20 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[var(--text)] placeholder:text-[var(--muted2)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:placeholder:text-white/40 dark:focus:ring-white/20"
                         type="number"
                         step="0.1"
                         value={minScore}
@@ -325,10 +329,10 @@ export default function AlertsClient() {
 
                 {mode === "table" ? (
                     <>
-                        <label className="flex items-center gap-2 text-sm">
+                        <label className="flex items-center gap-2 text-sm text-[var(--muted)] dark:text-white/80">
                             limit
                             <input
-                                className="w-24 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
+                                className="w-24 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[var(--text)] placeholder:text-[var(--muted2)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:placeholder:text-white/40 dark:focus:ring-white/20"
                                 type="number"
                                 step="10"
                                 value={limit}
@@ -336,13 +340,13 @@ export default function AlertsClient() {
                             />
                         </label>
 
-                        <label className="flex items-center gap-2 text-sm">
+                        <label className="flex items-center gap-2 text-sm text-[var(--muted)] dark:text-white/80">
                             <input type="checkbox" checked={dedupe} onChange={(e) => setDedupe(e.target.checked)} />
                             dedupe
                         </label>
 
                         <select
-                            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
+                            className="rounded-lg border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[var(--text)] placeholder:text-[var(--muted2)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:placeholder:text-white/40 dark:focus:ring-white/20"
                             value={sortBy}
                             onChange={(e) => setSortBy(e.target.value as SortBy)}
                         >
@@ -354,10 +358,10 @@ export default function AlertsClient() {
                     </>
                 ) : (
                     <>
-                        <label className="flex items-center gap-2 text-sm">
+                        <label className="flex items-center gap-2 text-sm text-[var(--muted)] dark:text-white/80">
                             keep
                             <input
-                                className="w-24 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
+                                className="w-24 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[var(--text)] placeholder:text-[var(--muted2)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:placeholder:text-white/40 dark:focus:ring-white/20"
                                 type="number"
                                 step="5"
                                 value={eventsLimit}
@@ -365,10 +369,10 @@ export default function AlertsClient() {
                             />
                         </label>
 
-                        <label className="flex items-center gap-2 text-sm">
+                        <label className="flex items-center gap-2 text-sm text-[var(--muted)] dark:text-white/80">
                             scoreJump
                             <input
-                                className="w-24 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
+                                className="w-24 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[var(--text)] placeholder:text-[var(--muted2)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:placeholder:text-white/40 dark:focus:ring-white/20"
                                 type="number"
                                 step="0.1"
                                 value={scoreJump}
@@ -376,10 +380,10 @@ export default function AlertsClient() {
                             />
                         </label>
 
-                        <label className="flex items-center gap-2 text-sm">
+                        <label className="flex items-center gap-2 text-sm text-[var(--muted)] dark:text-white/80">
                             cooldown(s)
                             <input
-                                className="w-24 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white/80 placeholder:text-white/40 focus:outline-none focus:ring-1 focus:ring-white/20"
+                                className="w-24 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[var(--text)] placeholder:text-[var(--muted2)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:placeholder:text-white/40 dark:focus:ring-white/20"
                                 type="number"
                                 step="10"
                                 value={cooldownSec}
@@ -388,7 +392,7 @@ export default function AlertsClient() {
                         </label>
 
                         <button
-                            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/80 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
+                            className="rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-1 text-sm text-[var(--text)] hover:bg-[var(--hover)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10 dark:focus:ring-white/20"
                             onClick={clearEvents}
                             type="button"
                         >
@@ -397,13 +401,13 @@ export default function AlertsClient() {
                     </>
                 )}
 
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 text-sm text-[var(--muted)] dark:text-white/80">
                     <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
                     auto
                 </label>
 
                 <button
-                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/80 placeholder:text-white/40 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
+                    className="rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-1 text-sm text-[var(--text)] placeholder:text-[var(--muted2)] hover:bg-[var(--hover)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:placeholder:text-white/40 dark:hover:bg-white/10 dark:focus:ring-white/20"
                     onClick={refresh}
                     disabled={displayLoading}
                 >
@@ -411,7 +415,7 @@ export default function AlertsClient() {
                 </button>
                 {mode === "table" ? (
                     <button
-                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white/80 hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/20"
+                        className="rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-1 text-sm text-[var(--text)] hover:bg-[var(--hover)] focus:outline-none focus:ring-1 focus:ring-[var(--border)] dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10 dark:focus:ring-white/20"
                         onClick={() => alertsTable.clearRows()}
                         type="button"
                     >
@@ -432,8 +436,8 @@ export default function AlertsClient() {
                                 className={[
                                     "rounded-lg border px-2 py-1 text-xs transition",
                                     on
-                                        ? "border-white/20 bg-white/10 text-white/90"
-                                        : "border-white/10 bg-transparent text-white/70 hover:bg-white/5 hover:text-white/90",
+                                        ? "border-[var(--border)] bg-[var(--panel2)] text-[var(--text)] dark:border-white/20 dark:bg-white/10 dark:text-white/90"
+                                        : "border-[var(--border)] bg-transparent text-[var(--muted)] hover:bg-[var(--panel)] hover:text-[var(--text)] dark:border-white/10 dark:text-white/70 dark:hover:bg-white/5 dark:hover:text-white/90",
                                 ].join(" ")}
                                 onClick={() => toggleSignal(s)}
                                 title="Filter by signal"
@@ -446,7 +450,7 @@ export default function AlertsClient() {
                     {signalFilter.length ? (
                         <button
                             type="button"
-                            className="rounded-lg border border-white/10 px-2 py-1 text-xs text-white/70 hover:bg-white/5 hover:text-white/90"
+                            className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs text-[var(--muted)] hover:bg-[var(--panel)] hover:text-[var(--text)] dark:border-white/10 dark:text-white/70 dark:hover:bg-white/5 dark:hover:text-white/90"
                             onClick={() => setSignalFilter([])}
                             title="Clear signal filters"
                         >
@@ -480,21 +484,21 @@ export default function AlertsClient() {
             />
 
             <div className="grid gap-2 md:grid-cols-4">
-                <div className="rounded-xl border border-white/10 p-3">
-                    <div className="text-xs opacity-70">{mode === "events" ? "Events" : "Rows"}</div>
-                    <div className="text-lg font-semibold">{kpi.total}</div>
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadowSm)] dark:border-white/10 dark:bg-transparent dark:shadow-none">
+                    <div className="text-xs text-[var(--muted2)] dark:opacity-70">{mode === "events" ? "Events" : "Rows"}</div>
+                    <div className="text-lg font-semibold text-[var(--text)] dark:text-white/90">{kpi.total}</div>
                 </div>
-                <div className="rounded-xl border border-white/10 p-3">
-                    <div className="text-xs opacity-70">Signals (non-Calm)</div>
-                    <div className="text-lg font-semibold">{kpi.nonCalm}</div>
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadowSm)] dark:border-white/10 dark:bg-transparent dark:shadow-none">
+                    <div className="text-xs text-[var(--muted2)] dark:opacity-70">Signals (non-Calm)</div>
+                    <div className="text-lg font-semibold text-[var(--text)] dark:text-white/90">{kpi.nonCalm}</div>
                 </div>
-                <div className="rounded-xl border border-white/10 p-3">
-                    <div className="text-xs opacity-70">Degraded</div>
-                    <div className="text-lg font-semibold">{kpi.degradedAny ? "YES" : "NO"}</div>
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadowSm)] dark:border-white/10 dark:bg-transparent dark:shadow-none">
+                    <div className="text-xs text-[var(--muted2)] dark:opacity-70">Degraded</div>
+                    <div className="text-lg font-semibold text-[var(--text)] dark:text-white/90">{kpi.degradedAny ? "YES" : "NO"}</div>
                 </div>
-                <div className="rounded-xl border border-white/10 p-3">
-                    <div className="text-xs opacity-70">WS Health</div>
-                    <div className="text-sm">
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadowSm)] dark:border-white/10 dark:bg-transparent dark:shadow-none">
+                    <div className="text-xs text-[var(--muted2)] dark:opacity-70">WS Health</div>
+                    <div className="text-sm text-[var(--muted)] dark:text-white/80">
                         <div>Binance: {((kpi.wsB as Record<string, unknown> | null)?.connected) ? "OK" : "—"}</div>
                         <div>MEXC: {((kpi.wsM as Record<string, unknown> | null)?.connected) ? "OK" : "—"}</div>
                     </div>

@@ -4,7 +4,7 @@ import Topbar from "@/components/shell/topbar";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
     return (
-        <div className="min-h-screen bg-[rgb(var(--bg-0))] text-white">
+        <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
             <div className="pointer-events-none fixed inset-0 -z-10">
                 <div className="absolute -top-40 left-1/3 h-[520px] w-[520px] rounded-full bg-[rgba(var(--accent),0.14)] blur-[120px]" />
                 <div className="absolute top-1/3 -right-40 h-[520px] w-[520px] rounded-full bg-[rgba(var(--accent2),0.12)] blur-[140px]" />

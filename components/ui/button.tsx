@@ -4,11 +4,11 @@ type Variant = "primary" | "secondary" | "ghost";
 
 const styles: Record<Variant, string> = {
     primary:
-        "border-[rgba(var(--accent),0.35)] bg-[rgba(var(--accent),0.12)] text-white/90 hover:bg-[rgba(var(--accent),0.18)]",
+        "border-[rgba(var(--accent),0.35)] bg-[rgba(var(--accent),0.12)] text-[var(--text)] hover:bg-[rgba(var(--accent),0.18)]",
     secondary:
-        "border-white/10 bg-white/5 text-white/80 hover:bg-white/8",
+        "border-[var(--border)] bg-[var(--panel2)] text-[var(--muted)] hover:bg-[var(--hover)]",
     ghost:
-        "border-transparent bg-transparent text-white/70 hover:bg-white/5 hover:text-white/90",
+        "border-transparent bg-transparent text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]",
 };
 
 export function Button({

@@ -1,1 +1,3 @@
-export { TerminalChart, type TerminalChartCandle } from "./tv-chart/TerminalChart";
+export {
+  AdvancedChartWidget,
+} from "./tradingview/AdvancedChartWidget";

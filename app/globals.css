@@ -1,23 +1,69 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* ========== Theme tokens ========== */
 :root {
-  --bg-0: 6 11 20;
-  /* page */
-  --bg-1: 11 18 32;
-  /* card */
-  --bg-2: 15 26 46;
-  /* raised */
-  --stroke: 255 255 255;
+  --canvas: #f3f7ff;
+  --card: #edf3fb;
+  --surface: #ffffff;
+  --zebra: #f6faff;
+  --border: #d3e0f2;
+  --hover: #e4effc;
+  --shadowLg: 0 14px 34px rgba(15, 23, 42, 0.08);
+  --shadowSm: 0 8px 18px rgba(15, 23, 42, 0.06);
+  --controlsBg: var(--card);
+  --controlsBorder: var(--border);
+  --bg: var(--canvas);
+  --panel: var(--card);
+  --panel2: var(--surface);
+  --text: #0f172a;
+  --muted: #475569;
+  --muted2: #64748b;
+  --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  --brandTextShadow: 0 1px 0 rgba(255, 255, 255, 0.4), 0 6px 18px rgba(15, 23, 42, 0.12);
+  --titleTextShadow: 0 1px 0 rgba(255, 255, 255, 0.35), 0 5px 16px rgba(15, 23, 42, 0.1);
 
-  --text-1: 255 255 255;
-  --text-2: 255 255 255;
-  --text-3: 255 255 255;
-
+  --bg-0: 243 247 255;
+  --bg-1: 248 251 255;
+  --bg-2: 255 255 255;
+  --stroke: 15 23 42;
+  --text-1: 15 23 42;
+  --text-2: 71 85 105;
+  --text-3: 100 116 139;
   --accent: 53 224 201;
-  /* cyan/teal */
+  --accent2: 56 189 248;
+}
+
+html.dark {
+  --canvas: #060b14;
+  --card: #0b1220;
+  --surface: #0f1a2e;
+  --zebra: #0f1a2e;
+  --controlsBg: #0b1220;
+  --controlsBorder: rgba(255, 255, 255, 0.08);
+  --bg: #060b14;
+  --panel: #0b1220;
+  --panel2: #0f1a2e;
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #e5e7eb;
+  --muted: rgba(229, 231, 235, 0.75);
+  --muted2: rgba(229, 231, 235, 0.55);
+  --shadow: 0 0 0 rgba(0, 0, 0, 0);
+  --shadowSm: 0 0 0 rgba(0, 0, 0, 0);
+  --shadowLg: 0 0 0 rgba(0, 0, 0, 0);
+  --brandTextShadow: none;
+  --titleTextShadow: none;
+  --hover: rgba(255, 255, 255, 0.04);
+
+  --bg-0: 6 11 20;
+  --bg-1: 11 18 32;
+  --bg-2: 15 26 46;
+  --stroke: 255 255 255;
+  --text-1: 255 255 255;
+  --text-2: 229 231 235;
+  --text-3: 148 163 184;
+  --accent: 53 224 201;
   --accent2: 139 92 246;
-  /* purple */
 }
 
 /* ========== Base ========== */
@@ -27,7 +73,7 @@ body {
 }
 
 body {
-  background: rgb(var(--bg-0));
-  color: rgb(var(--text-1));
+  background: var(--bg);
+  color: var(--text);
   font-family: Arial, Helvetica, sans-serif;
 }
