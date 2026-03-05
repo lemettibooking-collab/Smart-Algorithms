@@ -21,8 +21,10 @@ export function useHot(params: UseHotParams) {
   const [loading, setLoading] = useState(false);
   const [lastTs, setLastTs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const [rateLimitedUntilTs, setRateLimitedUntilTs] = useState<number | null>(null);
   const [streamConnected, setStreamConnected] = useState(false);
+  const [degraded, setDegraded] = useState(false);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [intervalSec, setIntervalSec] = useState(5);
@@ -66,6 +68,7 @@ export function useHot(params: UseHotParams) {
     const data = normalizeHotRows(Array.isArray(json.data) ? json.data : []);
     setRows(data);
     setLastTs(json.ts ?? Date.now());
+    setDegraded(!!json.degraded);
     setRateLimitedUntilTs(null);
     setError(null);
   }, []);
@@ -172,10 +175,12 @@ export function useHot(params: UseHotParams) {
     es.addEventListener("hot", onHot as EventListener);
     es.onopen = () => {
       setStreamConnected(true);
+      setStreamError(null);
       setError(null);
     };
     es.onerror = () => {
       setStreamConnected(false);
+      setStreamError("stream_error");
       es.close();
       if (streamRef.current === es) streamRef.current = null;
     };
@@ -202,8 +207,10 @@ export function useHot(params: UseHotParams) {
     loading,
     lastTs,
     error,
+    streamError,
     rateLimitedUntilTs,
     streamConnected,
+    degraded,
     autoRefresh,
     setAutoRefresh,
     intervalSec,

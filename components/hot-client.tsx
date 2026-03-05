@@ -9,6 +9,7 @@ import { SymbolDrawer } from "@/components/symbol-drawer";
 import { HotTable, useHot } from "@/src/widgets/hot-table";
 import type { HotRow as HotSymbol, HotTf as TF } from "@/src/entities/hot";
 import { sanitizeExchange, sanitizeSpikeMode, sanitizeTf, tfLabel } from "@/src/features/hot-filters";
+import { StatusStrip } from "@/src/features/status-strip";
 
 type SortKey = "score" | "symbol" | "price" | "changePercent" | "volume" | "volSpike" | "signal";
 type SortDir = "asc" | "desc";
@@ -160,7 +161,10 @@ export function HotClient({
     loading,
     lastTs,
     error,
+    streamError,
     rateLimitedUntilTs,
+    streamConnected,
+    degraded,
     autoRefresh,
     setAutoRefresh,
     intervalSec,
@@ -495,6 +499,27 @@ export function HotClient({
       <TopbarControlsSlot>
         <div className="hidden lg:block rounded-2xl border border-white/10 bg-[rgb(var(--bg-1))] px-5 py-4">{Controls}</div>
       </TopbarControlsSlot>
+
+      <StatusStrip
+        showEvents={false}
+        input={{
+          hot: {
+            connected: streamConnected,
+            lastTs,
+            error: streamError,
+            rateLimitedUntilTs,
+          },
+          events: {
+            connected: false,
+            lastTs: null,
+            error: null,
+            rateLimitedUntilTs: null,
+          },
+          alerts: {
+            degraded,
+          },
+        }}
+      />
 
       <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
         <div className="flex flex-wrap items-center gap-3">
