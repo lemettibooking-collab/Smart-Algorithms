@@ -1,6 +1,6 @@
 "use client";
 
-import type { EventRow } from "@/src/widgets/events-feed/model/useEventsFeed";
+import type { EventRow } from "@/src/entities/event";
 
 function fmtPct(x: number) {
   const n = Number(x ?? 0) || 0;
