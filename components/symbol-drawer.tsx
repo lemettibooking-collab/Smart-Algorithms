@@ -226,14 +226,14 @@ export function SymbolDrawer({
                             </button>
                         </div>
 
-                        <section className="rounded-xl border border-[var(--border)] bg-[var(--panel2)] p-3 dark:border-slate-800 dark:bg-slate-950/30">
+                        <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadowSm)] dark:border-slate-800 dark:bg-slate-950/30 dark:shadow-none">
                             <AdvancedChartWidget symbol={symbol} exchange={exchange} interval={chartInterval} locale="en" />
                             <div className="mt-2 text-xs text-[var(--muted2)] dark:text-slate-500">
                                 Exchange: {exchange} • Interval: {chartInterval}
                             </div>
                         </section>
 
-                        <section className="rounded-xl border border-[var(--border)] bg-[var(--panel2)] p-3 dark:border-slate-800 dark:bg-slate-950/30">
+                        <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadowSm)] dark:border-slate-800 dark:bg-slate-950/30 dark:shadow-none">
                             <div className="mb-2 text-sm font-medium text-[var(--text)] dark:text-slate-200">Signals (last)</div>
 
                             {events.length ? (
