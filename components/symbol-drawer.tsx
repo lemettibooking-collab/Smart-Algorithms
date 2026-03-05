@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
+import { TerminalChart } from "@/src/shared/ui";
 
 type TF = "24h" | "1m" | "5m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1M" | "1y";
 
@@ -81,25 +82,20 @@ function tfToInterval(tf: TF) {
 }
 
 function fmtPrice(n: number) {
-    const abs = Math.abs(n);
-    const d = abs >= 1000 ? 2 : abs >= 1 ? 4 : 8;
-    return n.toFixed(d);
+  const abs = Math.abs(n);
+  const d = abs >= 1000 ? 2 : abs >= 1 ? 4 : 8;
+  return n.toFixed(d);
 }
 
-function fmtNum(n: number | null | undefined, digits = 2) {
-    if (n == null || !Number.isFinite(n)) return "—";
-    return Number(n).toFixed(digits);
-}
-
-function fmtCompact(n: number | null | undefined) {
-    if (n == null || !Number.isFinite(n)) return "—";
-    const v = Number(n);
-    const a = Math.abs(v);
-    if (a >= 1e12) return (v / 1e12).toFixed(2) + "T";
-    if (a >= 1e9) return (v / 1e9).toFixed(2) + "B";
-    if (a >= 1e6) return (v / 1e6).toFixed(2) + "M";
-    if (a >= 1e3) return (v / 1e3).toFixed(2) + "K";
-    return v.toFixed(2);
+function lastSma(candles: KlineCandle[], period: number): number | null {
+    if (!Array.isArray(candles) || candles.length < period) return null;
+    let sum = 0;
+    for (let i = candles.length - period; i < candles.length; i += 1) {
+        const close = Number(candles[i]?.close);
+        if (!Number.isFinite(close)) return null;
+        sum += close;
+    }
+    return sum / period;
 }
 
 function signalBadge(signal: string) {
@@ -126,33 +122,6 @@ function signalBadge(signal: string) {
     }
 }
 
-function SparkLine({ closes }: { closes: number[] }) {
-    if (!closes.length) return null;
-
-    const w = 520;
-    const h = 160;
-
-    const min = Math.min(...closes);
-    const max = Math.max(...closes);
-    const span = Math.max(1e-12, max - min);
-
-    const pts = closes.map((v, i) => {
-        const x = (i / Math.max(1, closes.length - 1)) * w;
-        const y = h - ((v - min) / span) * h;
-        return [x, y] as const;
-    });
-
-    const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
-    const last = pts[pts.length - 1];
-
-    return (
-        <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
-            <path d={d} fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-200/90" />
-            <circle cx={last[0]} cy={last[1]} r="3.5" className="fill-slate-100" />
-        </svg>
-    );
-}
-
 export function SymbolDrawer({
     open,
     onClose,
@@ -169,6 +138,9 @@ export function SymbolDrawer({
     const symbol = row?.symbol ?? "";
     const [loading, setLoading] = useState(false);
     const [candles, setCandles] = useState<KlineCandle[]>([]);
+    const [showMA50, setShowMA50] = useState(true);
+    const [showMA100, setShowMA100] = useState(true);
+    const [showMA200, setShowMA200] = useState(true);
 
     // ESC to close
     useEffect(() => {
@@ -210,8 +182,6 @@ export function SymbolDrawer({
         };
     }, [open, symbol, tf]);
 
-    const closes = useMemo(() => candles.map((c) => c.close), [candles]);
-
     const events = useMemo(() => {
         if (!symbol) return [];
         return feed
@@ -219,6 +189,10 @@ export function SymbolDrawer({
             .sort((a, b) => b.ts - a.ts)
             .slice(0, 30);
     }, [feed, symbol]);
+
+    const ma50 = useMemo(() => lastSma(candles, 50), [candles]);
+    const ma100 = useMemo(() => lastSma(candles, 100), [candles]);
+    const ma200 = useMemo(() => lastSma(candles, 200), [candles]);
 
     return (
         <>
@@ -323,34 +297,39 @@ export function SymbolDrawer({
                             </button>
                         </div>
 
-                        {/* Metrics */}
+                        {/* Terminal chart */}
                         <section className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
-                            <div className="mb-2 text-sm font-medium text-slate-200">Metrics</div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <Metric label={`Δ ${tf}`} value={tf === "24h" ? row?.change24hPercent : row?.changePercent} suffix="%" />
-                                <Metric label="24h %" value={row?.change24hPercent} suffix="%" />
-                                <Metric label="Vol spike" value={row?.volSpike} suffix="x" digits={2} />
-                                <Metric label="Score" value={row?.score} digits={2} />
-                                <Metric label="Volume 24h" text={row?.volume ?? "—"} />
-                                <Metric label="MCap" text={row?.marketCap ?? fmtCompact(row?.marketCapRaw ?? null)} />
-                            </div>
-                            {row?.changeApprox ? (
-                                <div className="mt-2 text-xs text-slate-500">
-                                    Δtf рассчитан приблизительно (fallback).
+                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                <div className="text-sm font-medium text-slate-200">Terminal Chart</div>
+                                <div className="flex items-center gap-2 text-xs text-slate-300">
+                                    <label className="inline-flex items-center gap-1 rounded border border-sky-300/30 bg-sky-400/10 px-2 py-1">
+                                        <input type="checkbox" checked={showMA50} onChange={(e) => setShowMA50(e.target.checked)} />
+                                        MA50
+                                    </label>
+                                    <label className="inline-flex items-center gap-1 rounded border border-amber-300/30 bg-amber-400/10 px-2 py-1">
+                                        <input type="checkbox" checked={showMA100} onChange={(e) => setShowMA100(e.target.checked)} />
+                                        MA100
+                                    </label>
+                                    <label className="inline-flex items-center gap-1 rounded border border-violet-300/30 bg-violet-400/10 px-2 py-1">
+                                        <input type="checkbox" checked={showMA200} onChange={(e) => setShowMA200(e.target.checked)} />
+                                        MA200
+                                    </label>
                                 </div>
-                            ) : null}
-                        </section>
-
-                        {/* Chart */}
-                        <section className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
-                            <div className="mb-2 text-sm font-medium text-slate-200">Chart</div>
-                            {loading ? (
-                                <div className="h-[160px] animate-pulse rounded-lg bg-slate-900/40" />
-                            ) : closes.length ? (
-                                <SparkLine closes={closes} />
-                            ) : (
-                                <div className="text-xs text-slate-500">Нет данных по свечам.</div>
-                            )}
+                            </div>
+                            <TerminalChart
+                                candles={candles}
+                                loading={loading}
+                                showMA50={showMA50}
+                                showMA100={showMA100}
+                                showMA200={showMA200}
+                            />
+                            <div className="mt-2 text-xs text-slate-400">
+                                MA50 {ma50 == null ? "—" : fmtPrice(ma50)}{" "}
+                                <span className="mx-1 text-slate-600">|</span>
+                                MA100 {ma100 == null ? "—" : fmtPrice(ma100)}{" "}
+                                <span className="mx-1 text-slate-600">|</span>
+                                MA200 {ma200 == null ? "—" : fmtPrice(ma200)}
+                            </div>
                             <div className="mt-2 text-xs text-slate-500">
                                 Interval: {tfToInterval(tf)} • Candles: {candles.length}
                             </div>
@@ -400,28 +379,5 @@ export function SymbolDrawer({
                 </div>
             </aside>
         </>
-    );
-}
-
-function Metric({
-    label,
-    value,
-    suffix,
-    digits = 2,
-    text,
-}: {
-    label: string;
-    value?: number | null;
-    suffix?: string;
-    digits?: number;
-    text?: string;
-}) {
-    return (
-        <div className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3">
-            <div className="text-[11px] text-slate-500">{label}</div>
-            <div className="mt-1 text-sm font-semibold text-slate-100">
-                {text != null ? text : `${fmtNum(value ?? null, digits)}${suffix ?? ""}`}
-            </div>
-        </div>
     );
 }
