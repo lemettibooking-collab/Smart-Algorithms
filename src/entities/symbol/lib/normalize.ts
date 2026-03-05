@@ -1,4 +1,4 @@
-import type { SymbolCandle } from "@/src/entities/symbol/model/types";
+import type { SymbolCandle } from "../model/types";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return null;

@@ -1,4 +1,4 @@
-import type { AlertRow } from "@/src/entities/alert/model/types";
+import type { AlertRow } from "../model/types";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;

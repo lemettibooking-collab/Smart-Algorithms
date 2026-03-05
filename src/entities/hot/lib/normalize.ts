@@ -1,4 +1,4 @@
-import type { HotRow } from "@/src/entities/hot/model/types";
+import type { HotRow } from "../model/types";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return null;

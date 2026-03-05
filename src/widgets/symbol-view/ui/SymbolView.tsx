@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CandlestickChart } from "@/components/candlestick-chart";
 import { PriceChart } from "@/components/price-chart";
 import type { SymbolCandle, SymbolMetrics } from "@/src/entities/symbol";
-import { useSymbolData } from "@/src/widgets/symbol-view/model/useSymbolData";
+import { useSymbolData } from "../model/useSymbolData";
 
 export function SymbolView(props: {
   symbol: string;

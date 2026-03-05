@@ -1,6 +1,6 @@
 // app/hot/page.tsx
 import { HotClient } from "@/components/hot-client";
-import type { HotSymbol } from "@/components/hot-client";
+import type { HotRow as HotSymbol } from "@/src/entities/hot";
 import { headers } from "next/headers";
 
 type HotResponse = {

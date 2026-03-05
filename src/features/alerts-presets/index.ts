@@ -8,7 +8,7 @@ export {
   getPresetById,
   signalFilterToToggles,
   togglesToSignalFilter,
-} from "@/src/features/alerts-presets/model/presets";
+} from "./model/presets";
 
 export type {
   SignalFilter,
@@ -18,4 +18,4 @@ export type {
   SignalToggles,
   FiltersState,
   AlertsPreset,
-} from "@/src/features/alerts-presets/model/presets";
+} from "./model/presets";

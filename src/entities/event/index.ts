@@ -1,2 +1,2 @@
-export type { Exchange, AlertRow, EventRow, EventsResponse } from "@/src/entities/event/model/types";
-export { isEventRow, getEventStableKey, getEventTs } from "@/src/entities/event/lib/normalize";
+export type { Exchange, AlertRow, EventRow, EventsResponse } from "./model/types";
+export { isEventRow, getEventStableKey, getEventTs } from "./lib/normalize";

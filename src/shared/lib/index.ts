@@ -1,1 +1,1 @@
-export * from "@/src/shared/lib/json";
+export * from "./json";

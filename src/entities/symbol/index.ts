@@ -4,5 +4,5 @@ export type {
   SymbolExchange,
   SymbolMetrics,
   SymbolPeriods,
-} from "@/src/entities/symbol/model/types";
-export { isSymbolCandle, normalizeKlines } from "@/src/entities/symbol/lib/normalize";
+} from "./model/types";
+export { isSymbolCandle, normalizeKlines } from "./lib/normalize";
