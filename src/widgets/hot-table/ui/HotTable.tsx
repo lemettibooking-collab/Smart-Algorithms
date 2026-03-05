@@ -256,7 +256,7 @@ export function HotTable({
                   key={row.symbol}
                   onClick={() => onRowClick?.(r)}
                   className={[
-                    "border-t border-[var(--border)] bg-[var(--panel2)] hover:bg-[var(--hover)] transition-colors",
+                    "border-t border-[var(--border)] bg-[var(--panel2)] even:bg-[var(--zebra)] hover:bg-[var(--hover)] transition-colors",
                     onRowClick ? "cursor-pointer" : "",
                     rowTintClass(row.signal),
                   ].join(" ")}

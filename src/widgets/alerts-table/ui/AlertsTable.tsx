@@ -66,7 +66,7 @@ export function AlertsTable({
           </thead>
           <tbody className="text-sm text-[var(--muted)] leading-5">
             {renderedRows.map((r) => (
-              <tr key={r.id ?? `${r.baseAsset}:${r.exchange}:${r.symbol}`} className="border-t border-[var(--border)] bg-[var(--panel2)] hover:bg-[var(--hover)]">
+              <tr key={r.id ?? `${r.baseAsset}:${r.exchange}:${r.symbol}`} className="border-t border-[var(--border)] bg-[var(--panel2)] even:bg-[var(--zebra)] hover:bg-[var(--hover)]">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     {(r.logoUrl || r.iconUrl) ? (

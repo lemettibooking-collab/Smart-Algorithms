@@ -33,7 +33,7 @@ export function StatusStrip({ input, showHot = true, showEvents = true }: Status
   }, [health.rateLimit]);
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs text-[var(--muted)] shadow-[var(--shadowSm)]">
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-xs text-[var(--muted)] shadow-[var(--shadowSm)]">
       {showHot ? (
         <span className="inline-flex items-center gap-2">
           <span className={["h-2 w-2 rounded-full", dotClass(health.hot.status)].join(" ")} />

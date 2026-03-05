@@ -26,7 +26,7 @@ export function EventsFeed({ events, loading }: { events: EventRow[]; loading: b
           </thead>
           <tbody className="text-sm text-[var(--muted)] leading-5">
             {events.map((r, idx) => (
-              <tr key={r.eventId ?? `${idx}:${r.ts}:${r.baseAsset}`} className="border-t border-[var(--border)] bg-[var(--panel2)] hover:bg-[var(--hover)]">
+              <tr key={r.eventId ?? `${idx}:${r.ts}:${r.baseAsset}`} className="border-t border-[var(--border)] bg-[var(--panel2)] even:bg-[var(--zebra)] hover:bg-[var(--hover)]">
                 <td className="px-4 py-3 text-xs text-[var(--muted2)]">
                   {r.eventType === "signal_change" ? "Signal" : "Score"}
                 </td>

@@ -15,7 +15,7 @@ export default function Sidebar() {
     const pathname = usePathname();
 
     return (
-        <aside className="w-[260px] shrink-0">
+        <aside className="w-[260px] shrink-0 border-r border-[var(--border)] pr-5 dark:border-[var(--border)]">
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--shadowSm)]">
                 <div className="flex items-center gap-3">
                     {/* LOGO */}
@@ -52,10 +52,10 @@ export default function Sidebar() {
                                 key={i.href}
                                 href={i.href}
                                 className={[
-                                    "flex items-center justify-between rounded-xl px-3 py-2 text-sm transition",
+                                    "relative flex items-center justify-between rounded-xl px-3 py-2 text-sm transition",
                                     active
-                                        ? "bg-[var(--panel2)] text-[var(--text)] ring-1 ring-[rgba(var(--accent),0.25)]"
-                                        : "text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]",
+                                        ? "border border-[var(--border)] bg-[var(--surface)] pl-4 text-[var(--text)] shadow-[var(--shadowSm)] before:absolute before:left-0 before:top-1/2 before:h-6 before:w-1 before:-translate-y-1/2 before:rounded-full before:bg-sky-500 dark:border-white/10 dark:bg-white/10 dark:text-white/90 dark:shadow-none dark:before:bg-[rgb(var(--accent))]"
+                                        : "text-[var(--muted)] hover:bg-[var(--zebra)] hover:text-[var(--text)] dark:hover:bg-[var(--hover)]",
                                 ].join(" ")}
                             >
                                 <span>{i.label}</span>

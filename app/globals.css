@@ -3,20 +3,25 @@
 
 /* ========== Theme tokens ========== */
 :root {
-  --controlsBg: #eef2f7;
-  --controlsBorder: #d5dfec;
-  --bg: #edf4f9;
-  --panel: #f8fbff;
-  --panel2: #ffffff;
-  --border: #d7e3f4;
+  --canvas: #f3f7ff;
+  --card: #edf3fb;
+  --surface: #ffffff;
+  --zebra: #f6faff;
+  --border: #d3e0f2;
+  --hover: #e4effc;
+  --shadowLg: 0 14px 34px rgba(15, 23, 42, 0.08);
+  --shadowSm: 0 8px 18px rgba(15, 23, 42, 0.06);
+  --controlsBg: var(--card);
+  --controlsBorder: var(--border);
+  --bg: var(--canvas);
+  --panel: var(--card);
+  --panel2: var(--surface);
   --text: #0f172a;
   --muted: #475569;
   --muted2: #64748b;
   --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
-  --shadowSm: 0 6px 16px rgba(15, 23, 42, 0.06);
   --brandTextShadow: 0 1px 0 rgba(255, 255, 255, 0.4), 0 6px 18px rgba(15, 23, 42, 0.12);
   --titleTextShadow: 0 1px 0 rgba(255, 255, 255, 0.35), 0 5px 16px rgba(15, 23, 42, 0.1);
-  --hover: #eaf2ff;
 
   --bg-0: 243 247 255;
   --bg-1: 248 251 255;
@@ -30,6 +35,10 @@
 }
 
 html.dark {
+  --canvas: #060b14;
+  --card: #0b1220;
+  --surface: #0f1a2e;
+  --zebra: #0f1a2e;
   --controlsBg: #0b1220;
   --controlsBorder: rgba(255, 255, 255, 0.08);
   --bg: #060b14;
@@ -41,6 +50,7 @@ html.dark {
   --muted2: rgba(229, 231, 235, 0.55);
   --shadow: 0 0 0 rgba(0, 0, 0, 0);
   --shadowSm: 0 0 0 rgba(0, 0, 0, 0);
+  --shadowLg: 0 0 0 rgba(0, 0, 0, 0);
   --brandTextShadow: none;
   --titleTextShadow: none;
   --hover: rgba(255, 255, 255, 0.04);

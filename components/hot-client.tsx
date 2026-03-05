@@ -556,7 +556,7 @@ export function HotClient({
             {filteredFeed.map((e) => (
               <div
                 key={e.id}
-                className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--panel2)] px-3 py-2 text-xs transition-colors hover:bg-[var(--hover)]"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--panel2)] px-3 py-2 text-xs transition-colors even:bg-[var(--zebra)] hover:bg-[var(--hover)]"
                 title={e.source === "fallback" ? "Fallback row" : undefined}
               >
                 <div className="min-w-[90px] font-semibold text-[var(--text)]">{e.symbol}</div>
