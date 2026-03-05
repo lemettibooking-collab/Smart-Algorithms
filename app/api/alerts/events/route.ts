@@ -1,7 +1,9 @@
 // app/api/alerts/events/route.ts
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { TTLCache, InFlight } from "@/lib/server-cache";
 import { computeEventId, listEvents, putEvent } from "@/lib/repos/eventsRepo";
+import { validateQuery } from "@/src/shared/api";
 
 export const runtime = "nodejs";
 
@@ -167,14 +169,29 @@ async function safeJson<T>(res: Response): Promise<T | null> {
     }
 }
 
+const querySchema = z.object({
+    tf: z.string().trim().default("15m"),
+    limit: z.coerce.number().default(80),
+    scoreJump: z.coerce.number().default(1),
+    cooldownSec: z.coerce.number().default(90),
+    sort: z.enum(["score", "change", "change24h", "spike"]).optional(),
+    includeCalm: z.string().optional(),
+    minScore: z.coerce.number().optional(),
+    signals: z.string().optional(),
+    includeStables: z.string().optional(),
+    minVol: z.coerce.number().optional(),
+    baseLimit: z.coerce.number().optional(),
+});
+
 export async function GET(req: Request) {
+    const v = validateQuery(req, querySchema);
+    if (!v.ok) return v.res;
     const url = new URL(req.url);
 
-    const tf = url.searchParams.get("tf") ?? "15m";
-    const limit = clamp(Number(url.searchParams.get("limit") ?? "80") || 80, 1, 200);
-
-    const scoreJump = Number(url.searchParams.get("scoreJump") ?? "1") || 1; // +1.0
-    const cooldownSec = clamp(Number(url.searchParams.get("cooldownSec") ?? "90") || 90, 0, 3600);
+    const tf = v.data.tf;
+    const limit = clamp(v.data.limit, 1, 200);
+    const scoreJump = v.data.scoreJump;
+    const cooldownSec = clamp(v.data.cooldownSec, 0, 3600);
 
     // forward filters to /api/alerts (table aggregator)
     const forward = new URLSearchParams(url.searchParams);
@@ -183,7 +200,10 @@ export async function GET(req: Request) {
     forward.set("sort", forward.get("sort") ?? "score");
 
     // take a larger base to avoid missing events
-    const baseLimit = clamp(Number(forward.get("baseLimit") ?? "220") || 220, 80, 300);
+    const rawBaseLimit = typeof v.data.baseLimit === "number" && Number.isFinite(v.data.baseLimit)
+        ? v.data.baseLimit
+        : Number(forward.get("baseLimit") ?? "220") || 220;
+    const baseLimit = clamp(rawBaseLimit, 80, 300);
     forward.set("limit", String(baseLimit));
     forward.delete("baseLimit");
 
