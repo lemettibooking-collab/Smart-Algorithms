@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchJson } from "@/src/shared/api";
 import { safeJsonParse } from "@/src/shared/lib";
 import { getEventStableKey, getEventTs, isEventRow, type EventRow, type EventsResponse } from "@/src/entities/event";
 
@@ -57,6 +56,9 @@ export function useEventsFeed(params: UseEventsFeedParams) {
   const [err, setErr] = useState<string | null>(null);
   const [sources, setSources] = useState<unknown>(null);
   const [eventsStreamLive, setEventsStreamLive] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [rateLimitedUntilTs, setRateLimitedUntilTs] = useState<number | null>(null);
+  const [lastEventTs, setLastEventTs] = useState<number | null>(null);
 
   const eventsRef = useRef<EventRow[]>([]);
   const seenEventKeysRef = useRef<Set<string>>(new Set());
@@ -137,9 +139,20 @@ export function useEventsFeed(params: UseEventsFeedParams) {
     setLoading(true);
     setErr(null);
     try {
-      const j = await fetchJson<EventsResponse>(eventsQuery, { cache: "no-store" });
+      const res = await fetch(eventsQuery, { cache: "no-store" });
+      if (res.status === 429) {
+        const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+        const retryAfterMsRaw = Number(body?.retryAfterMs);
+        const retryAfterMs = Number.isFinite(retryAfterMsRaw) && retryAfterMsRaw > 0 ? retryAfterMsRaw : 5_000;
+        const untilTs = Date.now() + retryAfterMs;
+        setRateLimitedUntilTs(untilTs);
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = (await res.json()) as EventsResponse;
       if (j.error) setErr(j.error);
       setSources(j.sources ?? null);
+      setRateLimitedUntilTs(null);
 
       const incoming = Array.isArray(j.data) ? j.data : [];
       mergeIncomingEvents(incoming);
@@ -179,7 +192,10 @@ export function useEventsFeed(params: UseEventsFeedParams) {
     let stopped = false;
 
     es.onopen = () => {
-      if (!stopped) setEventsStreamLive(true);
+      if (!stopped) {
+        setEventsStreamLive(true);
+        setStreamError(null);
+      }
     };
 
     const onEvent = (e: MessageEvent) => {
@@ -199,6 +215,7 @@ export function useEventsFeed(params: UseEventsFeedParams) {
     es.onerror = () => {
       if (stopped) return;
       setEventsStreamLive(false);
+      setStreamError("stream_error");
       es.close();
     };
 
@@ -251,6 +268,7 @@ export function useEventsFeed(params: UseEventsFeedParams) {
   useEffect(() => {
     eventsRef.current = events;
     rememberEventKeys(events);
+    setLastEventTs(events.reduce((max, ev) => Math.max(max, getEventTs(ev)), 0) || null);
   }, [events, rememberEventKeys]);
 
   return {
@@ -258,6 +276,10 @@ export function useEventsFeed(params: UseEventsFeedParams) {
     loading,
     err,
     sources,
+    eventsStreamLive,
+    streamError,
+    rateLimitedUntilTs,
+    lastEventTs,
     refresh: loadEvents,
     clearEvents,
   };

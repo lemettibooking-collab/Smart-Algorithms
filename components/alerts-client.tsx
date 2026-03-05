@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { EventsFeed, useEventsFeed } from "@/src/widgets/events-feed";
 import { AlertsTable, useAlerts } from "@/src/widgets/alerts-table";
+import { StatusStrip } from "@/src/features/status-strip";
 import {
     ALERTS_PRESETS,
     DEFAULT_PRESET_ID,
@@ -456,6 +457,28 @@ export default function AlertsClient() {
             </div>
 
             {/* KPI */}
+            <StatusStrip
+                showHot={false}
+                input={{
+                    hot: {
+                        connected: false,
+                        lastTs: null,
+                        error: null,
+                        rateLimitedUntilTs: null,
+                    },
+                    events: {
+                        connected: eventsFeed.eventsStreamLive,
+                        lastTs: eventsFeed.lastEventTs,
+                        error: eventsFeed.streamError,
+                        rateLimitedUntilTs: eventsFeed.rateLimitedUntilTs,
+                    },
+                    alerts: {
+                        degraded: kpi.degradedAny,
+                        rateLimitedUntilTs: alertsTable.rateLimitedUntilTs,
+                    },
+                }}
+            />
+
             <div className="grid gap-2 md:grid-cols-4">
                 <div className="rounded-xl border border-white/10 p-3">
                     <div className="text-xs opacity-70">{mode === "events" ? "Events" : "Rows"}</div>

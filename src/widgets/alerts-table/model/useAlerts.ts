@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchJson } from "@/src/shared/api";
 import { normalizeAlertRows, type AlertRow, type AlertsResponse, type Wall, type WallsResponse } from "@/src/entities/alert";
 import type { SignalFilter, SortBy } from "@/src/features/alerts-presets";
 
@@ -45,6 +44,8 @@ export function useAlerts(params: UseAlertsParams) {
   const [wallsMap, setWallsMap] = useState<Record<string, { bid?: Wall; ask?: Wall }>>({});
   const [sources, setSources] = useState<unknown>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [lastTs, setLastTs] = useState<number | null>(null);
+  const [rateLimitedUntilTs, setRateLimitedUntilTs] = useState<number | null>(null);
 
   const tableQuery = useMemo(() => {
     const p = new URLSearchParams();
@@ -62,18 +63,31 @@ export function useAlerts(params: UseAlertsParams) {
     setLoading(true);
     setErr(null);
     try {
-      const j = await fetchJson<AlertsResponse>(tableQuery, { cache: "no-store" });
+      const res = await fetch(tableQuery, { cache: "no-store" });
+      if (res.status === 429) {
+        const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+        const retryAfterMsRaw = Number(body?.retryAfterMs);
+        const retryAfterMs = Number.isFinite(retryAfterMsRaw) && retryAfterMsRaw > 0 ? retryAfterMsRaw : 5_000;
+        setRateLimitedUntilTs(Date.now() + retryAfterMs);
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = (await res.json()) as AlertsResponse;
       if (j.error) setErr(j.error);
       const nextRows = normalizeAlertRows(Array.isArray(j.data) ? j.data : []);
       setRows(nextRows);
       setSources(j.sources ?? null);
+      setLastTs(Date.now());
+      setRateLimitedUntilTs(null);
 
       const symbols = Array.from(new Set(nextRows.map((x) => String(x.symbol ?? "").trim().toUpperCase()).filter(Boolean))).slice(0, 10);
       if (symbols.length === 0) {
         setWallsMap({});
       } else {
         try {
-          const wj = await fetchJson<WallsResponse>(`/api/walls?symbols=${encodeURIComponent(symbols.join(","))}`, { cache: "no-store" });
+          const wr = await fetch(`/api/walls?symbols=${encodeURIComponent(symbols.join(","))}`, { cache: "no-store" });
+          if (!wr.ok) throw new Error(`HTTP ${wr.status}`);
+          const wj = (await wr.json()) as WallsResponse;
           const data = (typeof wj?.data === "object" && wj?.data !== null ? wj.data : {}) as Record<string, { bid?: Wall; ask?: Wall }>;
           setWallsMap(data);
         } catch {
@@ -115,6 +129,8 @@ export function useAlerts(params: UseAlertsParams) {
     wallsMap,
     sources,
     err,
+    lastTs,
+    rateLimitedUntilTs,
     refresh,
     clearRows,
   };
