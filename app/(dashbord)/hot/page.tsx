@@ -68,7 +68,7 @@ export default async function HotPage({
   return (
     <main className="space-y-3">
       <h2 className="text-lg font-semibold">Hot symbols</h2>
-      <p className="text-sm text-slate-400">
+      <p className="text-sm text-[var(--muted)]">
         Scanner feed (computed by selected period). Change “Period” to recalc.
       </p>
 

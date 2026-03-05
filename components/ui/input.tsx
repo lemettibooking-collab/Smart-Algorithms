@@ -7,8 +7,8 @@ export function Input({
     return (
         <input
             className={[
-                "w-full rounded-xl border border-white/10 bg-[rgb(var(--bg-2))] px-3 py-2 text-sm text-white/90",
-                "placeholder:text-white/40 outline-none focus:border-[rgba(var(--accent),0.35)]",
+                "w-full rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)]",
+                "placeholder:text-[var(--muted2)] outline-none focus:border-[rgba(var(--accent),0.35)]",
                 "focus:shadow-[0_0_0_4px_rgba(var(--accent),0.10)]",
                 className,
             ].join(" ")}

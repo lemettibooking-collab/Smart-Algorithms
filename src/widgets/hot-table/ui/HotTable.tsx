@@ -71,23 +71,23 @@ function scoreGlowClass(score: number) {
 function signalBadgeClass(signal: string) {
   switch (signal) {
     case "Breakout":
-      return "border-emerald-400/45 bg-emerald-400/14 text-emerald-200 shadow-[0_0_16px_rgba(52,211,153,0.18)]";
+      return "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/45 dark:bg-emerald-400/14 dark:text-emerald-200 shadow-[0_0_16px_rgba(52,211,153,0.18)]";
     case "Big Move":
-      return "border-green-400/45 bg-green-400/14 text-green-200 shadow-[0_0_16px_rgba(74,222,128,0.16)]";
+      return "border-green-300 bg-green-50 text-green-700 dark:border-green-400/45 dark:bg-green-400/14 dark:text-green-200 shadow-[0_0_16px_rgba(74,222,128,0.16)]";
     case "Reversal Up":
-      return "border-teal-400/45 bg-teal-400/14 text-teal-200 shadow-[0_0_16px_rgba(45,212,191,0.16)]";
+      return "border-teal-300 bg-teal-50 text-teal-700 dark:border-teal-400/45 dark:bg-teal-400/14 dark:text-teal-200 shadow-[0_0_16px_rgba(45,212,191,0.16)]";
     case "Reversal Down":
-      return "border-fuchsia-400/45 bg-fuchsia-400/14 text-fuchsia-200 shadow-[0_0_16px_rgba(232,121,249,0.14)]";
+      return "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-700 dark:border-fuchsia-400/45 dark:bg-fuchsia-400/14 dark:text-fuchsia-200 shadow-[0_0_16px_rgba(232,121,249,0.14)]";
     case "Dump":
-      return "border-rose-400/45 bg-rose-400/14 text-rose-200 shadow-[0_0_16px_rgba(251,113,133,0.14)]";
+      return "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/45 dark:bg-rose-400/14 dark:text-rose-200 shadow-[0_0_16px_rgba(251,113,133,0.14)]";
     case "Whale Activity":
-      return "border-amber-400/55 bg-amber-400/14 text-amber-200 shadow-[0_0_16px_rgba(251,191,36,0.14)]";
+      return "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/55 dark:bg-amber-400/14 dark:text-amber-200 shadow-[0_0_16px_rgba(251,191,36,0.14)]";
     case "Watch":
-      return "border-sky-400/55 bg-sky-400/14 text-sky-200 shadow-[0_0_16px_rgba(56,189,248,0.14)]";
+      return "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-400/55 dark:bg-sky-400/14 dark:text-sky-200 shadow-[0_0_16px_rgba(56,189,248,0.14)]";
     case "Calm":
-      return "border-white/10 bg-white/5 text-white/65";
+      return "border-[var(--border)] bg-[var(--panel2)] text-[var(--muted)]";
     default:
-      return "border-white/10 bg-white/5 text-white/65";
+      return "border-[var(--border)] bg-[var(--panel2)] text-[var(--muted)]";
   }
 }
 
@@ -178,8 +178,8 @@ function CoinLogo({
   };
 
   return (
-    <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-white/5">
-      <div className="pointer-events-none absolute -top-3 left-2 h-6 w-6 rounded-full bg-white/10 blur-md" />
+    <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--panel2)]">
+      <div className="pointer-events-none absolute -top-3 left-2 h-6 w-6 rounded-full bg-[var(--hover)] blur-md" />
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -193,7 +193,7 @@ function CoinLogo({
         />
       ) : (
         <div className="relative z-10 flex h-full w-full items-center justify-center">
-          <span className="text-xs font-semibold text-white/70">{base.slice(0, 1)}</span>
+          <span className="text-xs font-semibold text-[var(--muted)]">{base.slice(0, 1)}</span>
         </div>
       )}
     </div>
@@ -215,26 +215,26 @@ export function HotTable({
   const trendInterval = intervalFromChangeLabel(changeLabel);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[rgb(var(--bg-1))]">
+    <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-[var(--shadowSm)]">
       <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse text-sm text-white/80">
+        <table className="min-w-full border-collapse text-sm text-[var(--muted)]">
           <thead className="sticky top-0 z-10">
-            <tr className="bg-[rgb(var(--bg-1))]">
-              <th className="px-3 py-3 text-left text-xs font-semibold text-white/60">Score</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-white/60">Symbol</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-white/60">Trend</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">Price</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">{changeLabel}</th>
+            <tr className="bg-[var(--panel2)]">
+              <th className="px-3 py-3 text-left text-xs font-semibold text-[var(--muted)]">Score</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-[var(--muted)]">Symbol</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-[var(--muted)]">Trend</th>
+              <th className="px-3 py-3 text-right text-xs font-semibold text-[var(--muted)]">Price</th>
+              <th className="px-3 py-3 text-right text-xs font-semibold text-[var(--muted)]">{changeLabel}</th>
               {!isTicker ? (
-                <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">24h %</th>
+                <th className="px-3 py-3 text-right text-xs font-semibold text-[var(--muted)]">24h %</th>
               ) : null}
-              <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">Volume (24h)</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">MCap</th>
-              <th className="px-3 py-3 text-right text-xs font-semibold text-white/60">Vol spike</th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-white/60">Signal</th>
+              <th className="px-3 py-3 text-right text-xs font-semibold text-[var(--muted)]">Volume (24h)</th>
+              <th className="px-3 py-3 text-right text-xs font-semibold text-[var(--muted)]">MCap</th>
+              <th className="px-3 py-3 text-right text-xs font-semibold text-[var(--muted)]">Vol spike</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-[var(--muted)]">Signal</th>
             </tr>
             <tr>
-              <td colSpan={isTicker ? 9 : 10} className="h-px bg-white/10" />
+              <td colSpan={isTicker ? 9 : 10} className="h-px bg-[var(--border)]" />
             </tr>
           </thead>
 
@@ -256,19 +256,19 @@ export function HotTable({
                   key={row.symbol}
                   onClick={() => onRowClick?.(r)}
                   className={[
-                    "border-t border-white/5 hover:bg-white/5 transition-colors",
+                    "border-t border-[var(--border)] bg-[var(--panel2)] hover:bg-[var(--hover)] transition-colors",
                     onRowClick ? "cursor-pointer" : "",
                     rowTintClass(row.signal),
                   ].join(" ")}
                 >
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="relative h-7 w-16 overflow-hidden rounded-full border border-white/10 bg-white/5">
+                      <div className="relative h-7 w-16 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--panel2)]">
                         <div
                           className={["absolute inset-y-0 left-0", scoreGlowClass(row.score ?? 0)].join(" ")}
                           style={{ width: scoreBarWidth(row.score ?? 0) }}
                         />
-                        <div className="relative z-10 flex h-full items-center justify-center text-[11px] font-semibold text-white/80 tabular-nums">
+                        <div className="relative z-10 flex h-full items-center justify-center text-[11px] font-semibold text-[var(--text)] tabular-nums">
                           {Number(row.score ?? 0).toFixed(2)}
                         </div>
                       </div>
@@ -286,7 +286,7 @@ export function HotTable({
                       />
                       <div className="min-w-0">
                         <div className="relative inline-flex items-center">
-                          <span className="font-medium text-white/90 leading-tight">{row.symbol}</span>
+                          <span className="font-medium text-[var(--text)] leading-tight">{row.symbol}</span>
                           {isNewListing ? (
                             <span
                               className="ml-1 inline-flex rounded border border-amber-400/45 bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200"
@@ -297,7 +297,7 @@ export function HotTable({
                           ) : null}
                           {row.source === "fallback" ? (
                             <span
-                              className="absolute -top-0.5 -right-3.5 flex h-2 w-2 items-center justify-center rounded-full bg-white/5 text-[8px] font-semibold text-white/40"
+                              className="absolute -top-0.5 -right-3.5 flex h-2 w-2 items-center justify-center rounded-full bg-[var(--panel2)] text-[8px] font-semibold text-[var(--muted2)]"
                               title="Fallback: candle data unavailable (ticker-based approximation)"
                             >
                               i
@@ -312,12 +312,12 @@ export function HotTable({
                     <Sparkline symbol={row.symbol} interval={trendInterval} exchange={rowExchange} />
                   </td>
 
-                  <td className="px-3 py-3 text-right tabular-nums text-white/90">${fmtPrice(row.price)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-[var(--text)]">${fmtPrice(row.price)}</td>
 
                   <td
                     className={[
                       "px-3 py-3 text-right tabular-nums",
-                      ch > 0 ? "text-emerald-400" : ch < 0 ? "text-rose-400" : "text-white/70",
+                      ch > 0 ? "text-emerald-500 dark:text-emerald-400" : ch < 0 ? "text-rose-500 dark:text-rose-400" : "text-[var(--muted)]",
                     ].join(" ")}
                     title={row.changeApprox ? "Approximation (fallback when klines unavailable)" : "Exact (klines + live price)"}
                   >
@@ -328,17 +328,17 @@ export function HotTable({
                     <td
                       className={[
                         "px-3 py-3 text-right tabular-nums",
-                        ch24 > 0 ? "text-emerald-400" : ch24 < 0 ? "text-rose-400" : "text-white/70",
+                        ch24 > 0 ? "text-emerald-500 dark:text-emerald-400" : ch24 < 0 ? "text-rose-500 dark:text-rose-400" : "text-[var(--muted)]",
                       ].join(" ")}
                     >
                       {fmtPct(ch24)}
                     </td>
                   ) : null}
 
-                  <td className="px-3 py-3 text-right tabular-nums text-white/70">{row.volume}</td>
-                  <td className="px-3 py-3 text-right tabular-nums text-white/70">{row.marketCap ?? "—"}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-[var(--muted)]">{row.volume}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-[var(--muted)]">{row.marketCap ?? "—"}</td>
                   <td
-                    className="px-3 py-3 text-right tabular-nums text-white/70"
+                    className="px-3 py-3 text-right tabular-nums text-[var(--muted)]"
                     title={
                       row.volSpike == null && isNewListing
                         ? `Not enough candles: ${spikeCandles}/${spikeNeed}`
@@ -367,7 +367,7 @@ export function HotTable({
         </table>
       </div>
 
-      <div className="pointer-events-none h-6 bg-gradient-to-b from-transparent to-black/10" />
+      <div className="pointer-events-none h-6 bg-gradient-to-b from-transparent to-[var(--hover)]" />
     </div>
   );
 }

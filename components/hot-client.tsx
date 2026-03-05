@@ -101,23 +101,23 @@ function isStrongSignal(sig: string) {
 function feedSignalBadgeClass(signal: string) {
   switch (signal) {
     case "Breakout":
-      return "border-emerald-400/45 bg-emerald-400/14 text-emerald-200 shadow-[0_0_16px_rgba(52,211,153,0.18)]";
+      return "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/45 dark:bg-emerald-400/14 dark:text-emerald-200 shadow-[0_0_16px_rgba(52,211,153,0.18)]";
     case "Big Move":
-      return "border-green-400/45 bg-green-400/14 text-green-200 shadow-[0_0_16px_rgba(74,222,128,0.16)]";
+      return "border-green-300 bg-green-50 text-green-700 dark:border-green-400/45 dark:bg-green-400/14 dark:text-green-200 shadow-[0_0_16px_rgba(74,222,128,0.16)]";
     case "Reversal Up":
-      return "border-teal-400/45 bg-teal-400/14 text-teal-200 shadow-[0_0_16px_rgba(45,212,191,0.16)]";
+      return "border-teal-300 bg-teal-50 text-teal-700 dark:border-teal-400/45 dark:bg-teal-400/14 dark:text-teal-200 shadow-[0_0_16px_rgba(45,212,191,0.16)]";
     case "Reversal Down":
-      return "border-fuchsia-400/45 bg-fuchsia-400/14 text-fuchsia-200 shadow-[0_0_16px_rgba(232,121,249,0.14)]";
+      return "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-700 dark:border-fuchsia-400/45 dark:bg-fuchsia-400/14 dark:text-fuchsia-200 shadow-[0_0_16px_rgba(232,121,249,0.14)]";
     case "Dump":
-      return "border-rose-400/45 bg-rose-400/14 text-rose-200 shadow-[0_0_16px_rgba(251,113,133,0.14)]";
+      return "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/45 dark:bg-rose-400/14 dark:text-rose-200 shadow-[0_0_16px_rgba(251,113,133,0.14)]";
     case "Whale Activity":
-      return "border-amber-400/55 bg-amber-400/14 text-amber-200 shadow-[0_0_16px_rgba(251,191,36,0.14)]";
+      return "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/55 dark:bg-amber-400/14 dark:text-amber-200 shadow-[0_0_16px_rgba(251,191,36,0.14)]";
     case "Watch":
-      return "border-sky-400/55 bg-sky-400/14 text-sky-200 shadow-[0_0_16px_rgba(56,189,248,0.14)]";
+      return "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-400/55 dark:bg-sky-400/14 dark:text-sky-200 shadow-[0_0_16px_rgba(56,189,248,0.14)]";
     case "Calm":
-      return "border-white/10 bg-white/5 text-white/65";
+      return "border-[var(--border)] bg-[var(--panel2)] text-[var(--muted)]";
     default:
-      return "border-white/10 bg-white/5 text-white/65";
+      return "border-[var(--border)] bg-[var(--panel2)] text-[var(--muted)]";
   }
 }
 
@@ -321,16 +321,16 @@ export function HotClient({
   const Controls = (
     <div className="flex flex-wrap items-center gap-3">
       <div className="relative w-[320px] max-w-full">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted2)]" />
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search symbol or signal…" className="pl-9" />
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-xs text-white/50">Exchange</span>
+        <span className="text-xs text-[var(--muted2)]">Exchange</span>
         <select
           value={exchange}
           onChange={(e) => setExchange(sanitizeExchange(e.target.value, "binance"))}
-          className="rounded-xl border border-white/10 bg-[rgb(var(--bg-2))] px-3 py-2 text-sm text-white/80 outline-none focus:border-[rgba(var(--accent),0.35)]"
+          className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[rgba(var(--accent),0.35)]"
         >
           <option value="binance">binance</option>
           <option value="mexc">mexc</option>
@@ -338,11 +338,11 @@ export function HotClient({
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-xs text-white/50">Period</span>
+        <span className="text-xs text-[var(--muted2)]">Period</span>
         <select
           value={tf}
           onChange={(e) => setTf(sanitizeTf(e.target.value, "24h"))}
-          className="rounded-xl border border-white/10 bg-[rgb(var(--bg-2))] px-3 py-2 text-sm text-white/80 outline-none focus:border-[rgba(var(--accent),0.35)]"
+          className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[rgba(var(--accent),0.35)]"
         >
           <option value="1m">1m</option>
           <option value="5m">5m</option>
@@ -358,11 +358,11 @@ export function HotClient({
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-xs text-white/50">VolSpike mode</span>
+        <span className="text-xs text-[var(--muted2)]">VolSpike mode</span>
         <select
           value={spikeMode}
           onChange={(e) => setSpikeMode(sanitizeSpikeMode(e.target.value, "pulse"))}
-          className="rounded-xl border border-white/10 bg-[rgb(var(--bg-2))] px-3 py-2 text-sm text-white/80 outline-none focus:border-[rgba(var(--accent),0.35)]"
+          className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[rgba(var(--accent),0.35)]"
         >
           <option value="pulse">Pulse</option>
           <option value="scalp">Scalp</option>
@@ -370,7 +370,7 @@ export function HotClient({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-white/50">Min Vol (24h)</span>
+        <span className="text-xs text-[var(--muted2)]">Min Vol (24h)</span>
 
         <input
           type="range"
@@ -402,7 +402,7 @@ export function HotClient({
             className="w-[120px]"
             placeholder="e.g. 100k"
           />
-          <span className="text-xs text-white/60 tabular-nums">{fmtVol(minVol)}</span>
+          <span className="text-xs text-[var(--muted)] tabular-nums">{fmtVol(minVol)}</span>
         </div>
 
         <Button variant="ghost" onClick={() => setMinVol(0)} title="Reset min volume">
@@ -412,7 +412,7 @@ export function HotClient({
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-xs text-white/50">Min MCap (B)</span>
+        <span className="text-xs text-[var(--muted2)]">Min MCap (B)</span>
         <Input
           type="number"
           min={0}
@@ -428,11 +428,11 @@ export function HotClient({
       </div>
 
       <div className="flex items-center gap-2">
-        <ArrowUpDown className="h-4 w-4 text-white/40" />
+        <ArrowUpDown className="h-4 w-4 text-[var(--muted2)]" />
         <select
           value={sortKey}
           onChange={(e) => setSortKey(e.target.value as SortKey)}
-          className="rounded-xl border border-white/10 bg-[rgb(var(--bg-2))] px-3 py-2 text-sm text-white/80 outline-none focus:border-[rgba(var(--accent),0.35)]"
+          className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[rgba(var(--accent),0.35)]"
           disabled={topVolSpike}
         >
           <option value="score">score</option>
@@ -469,7 +469,7 @@ export function HotClient({
       </Button>
 
       <div className="ml-auto flex items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-white/70">
+        <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
           <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="h-4 w-4" />
           Auto
         </label>
@@ -477,7 +477,7 @@ export function HotClient({
         <select
           value={intervalSec}
           onChange={(e) => setIntervalSec(Number(e.target.value))}
-          className="rounded-xl border border-white/10 bg-[rgb(var(--bg-2))] px-3 py-2 text-sm text-white/80 outline-none"
+          className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] outline-none disabled:bg-[var(--panel2)] disabled:text-[var(--muted2)]"
           disabled={!autoRefresh}
         >
           <option value={3}>3s</option>
@@ -497,7 +497,7 @@ export function HotClient({
   return (
     <div className="space-y-4">
       <TopbarControlsSlot>
-        <div className="hidden lg:block rounded-2xl border border-white/10 bg-[rgb(var(--bg-1))] px-5 py-4">{Controls}</div>
+        <div className="hidden lg:block rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-5 py-4 shadow-[var(--shadowSm)]">{Controls}</div>
       </TopbarControlsSlot>
 
       <StatusStrip
@@ -521,16 +521,16 @@ export function HotClient({
         }}
       />
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="font-medium text-slate-200">Signals Feed</div>
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadowSm)]">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border-b border-[var(--border)] bg-[var(--panel2)] px-2 py-2">
+          <div className="font-medium text-[var(--text)]">Signals Feed</div>
 
-          <label className="flex items-center gap-2 text-xs text-slate-300">
+          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
             <input type="checkbox" checked={onlyStrong} onChange={(e) => setOnlyStrong(e.target.checked)} className="h-4 w-4" />
             Only strong
           </label>
 
-          <label className="flex items-center gap-2 text-xs text-slate-300">
+          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
             <input type="checkbox" checked={feedPaused} onChange={(e) => setFeedPaused(e.target.checked)} className="h-4 w-4" />
             Pause feed
           </label>
@@ -538,14 +538,14 @@ export function HotClient({
           <button
             type="button"
             onClick={clearFeed}
-            className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-1.5 text-xs hover:border-slate-600"
+            className="rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-xs text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
           >
             Clear
           </button>
 
-          <div className="ml-auto text-xs text-slate-500">
+          <div className="ml-auto text-xs text-[var(--muted2)]">
             {feed.length ? `Events: ${feed.length}` : "No events yet"} • Exchange:{" "}
-            <span className="text-slate-300">{exchange}</span>
+            <span className="text-[var(--muted)]">{exchange}</span>
           </div>
         </div>
 
@@ -554,10 +554,10 @@ export function HotClient({
             {filteredFeed.map((e) => (
               <div
                 key={e.id}
-                className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-800/60 bg-slate-950/40 px-3 py-2 text-xs"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--panel2)] px-3 py-2 text-xs transition-colors hover:bg-[var(--hover)]"
                 title={e.source === "fallback" ? "Fallback row" : undefined}
               >
-                <div className="min-w-[90px] font-semibold text-slate-100">{e.symbol}</div>
+                <div className="min-w-[90px] font-semibold text-[var(--text)]">{e.symbol}</div>
 
                 <span
                   className={[
@@ -569,32 +569,32 @@ export function HotClient({
                   {e.signal}
                 </span>
 
-                <div className="text-slate-500">{ageLabel(nowTick - e.ts)} ago</div>
+                <div className="text-[var(--muted2)]">{ageLabel(nowTick - e.ts)} ago</div>
 
-                <div className="text-slate-400">
+                <div className="text-[var(--muted)]">
                   Δ {e.tf}:{" "}
-                  <span className={e.changePercent > 0 ? "text-emerald-400" : e.changePercent < 0 ? "text-rose-400" : ""}>
+                  <span className={e.changePercent > 0 ? "text-emerald-500 dark:text-emerald-400" : e.changePercent < 0 ? "text-rose-500 dark:text-rose-400" : ""}>
                     {Number.isFinite(e.changePercent) ? `${e.changePercent.toFixed(2)}%` : "—"}
                   </span>
                 </div>
 
-                <div className="text-slate-400">Spike: {e.volSpike == null ? "—" : `${e.volSpike.toFixed(2)}x`}</div>
+                <div className="text-[var(--muted)]">Spike: {e.volSpike == null ? "—" : `${e.volSpike.toFixed(2)}x`}</div>
 
-                <div className="ml-auto text-slate-500">${Number.isFinite(e.price) ? e.price.toFixed(e.price >= 1 ? 4 : 8) : "—"}</div>
+                <div className="ml-auto text-[var(--muted2)]">${Number.isFinite(e.price) ? e.price.toFixed(e.price >= 1 ? 4 : 8) : "—"}</div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="mt-3 text-xs text-slate-500">
-            Waiting for signals (anything except <span className="text-slate-300">Calm</span>). Cooldown per symbol:{" "}
+          <div className="mt-3 text-xs text-[var(--muted2)]">
+            Waiting for signals (anything except <span className="text-[var(--muted)]">Calm</span>). Cooldown per symbol:{" "}
             {Math.round(COOLDOWN_MS / 1000)}s.
           </div>
         )}
       </div>
 
-      <div className="lg:hidden">{Controls}</div>
+      <div className="lg:hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-4 py-4 shadow-[var(--shadowSm)]">{Controls}</div>
 
-      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--muted2)]">
         <span>Rows: {filteredSorted.length}</span>
         {lastTs ? <span>Last update: {new Date(lastTs).toLocaleTimeString()}</span> : null}
         {minMcapB > 0 ? <span>Min MCap: {minMcapB}B</span> : null}
@@ -602,7 +602,7 @@ export function HotClient({
         <span>Missing MCap: {missingMcapCount}</span>
         {topVolSpike ? <span>Sorting: volSpike desc</span> : null}
         {rateLimitedUntilTs && rateLimitedUntilTs > nowTick ? (
-          <span className="text-amber-300">
+          <span className="text-amber-600 dark:text-amber-300">
             Rate limited - retry in {Math.ceil((rateLimitedUntilTs - nowTick) / 1000)}s
           </span>
         ) : null}

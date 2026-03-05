@@ -47,10 +47,10 @@ export function AlertsTable({
   const renderedRows = useMemo(() => rows, [rows]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur-md shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-[var(--shadowSm)]">
       <div className="max-h-[70vh] overflow-auto">
-        <table className="w-full text-sm text-white/80">
-          <thead className="sticky top-0 bg-white/5 text-sm font-medium text-white/80">
+        <table className="w-full text-sm text-[var(--muted)]">
+          <thead className="sticky top-0 bg-[var(--panel2)] text-sm font-medium text-[var(--muted)]">
             <tr className="text-left">
               <th className="px-4 py-3">Asset</th>
               <th className="px-4 py-3">Exch</th>
@@ -64,9 +64,9 @@ export function AlertsTable({
               <th className="px-4 py-3">VolSpike</th>
             </tr>
           </thead>
-          <tbody className="text-sm text-white/80 leading-5">
+          <tbody className="text-sm text-[var(--muted)] leading-5">
             {renderedRows.map((r) => (
-              <tr key={r.id ?? `${r.baseAsset}:${r.exchange}:${r.symbol}`} className="border-t border-white/5 hover:bg-white/5">
+              <tr key={r.id ?? `${r.baseAsset}:${r.exchange}:${r.symbol}`} className="border-t border-[var(--border)] bg-[var(--panel2)] hover:bg-[var(--hover)]">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     {(r.logoUrl || r.iconUrl) ? (
@@ -78,10 +78,10 @@ export function AlertsTable({
                         loading="lazy"
                       />
                     ) : (
-                      <div className="h-5 w-5 rounded-full border border-white/10" />
+                      <div className="h-5 w-5 rounded-full border border-[var(--border)]" />
                     )}
-                    <div className="font-medium">{r.baseAsset}</div>
-                    <div className="text-xs text-white/50">{r.symbol}</div>
+                    <div className="font-medium text-[var(--text)]">{r.baseAsset}</div>
+                    <div className="text-xs text-[var(--muted2)]">{r.symbol}</div>
                   </div>
                 </td>
                 <td className="px-4 py-3">{r.exchange}</td>
@@ -96,13 +96,13 @@ export function AlertsTable({
                       if (status === "NEW") return "rounded border border-emerald-400/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300";
                       if (status === "EATING") return "rounded border border-amber-400/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300";
                       if (status === "REMOVED") return "rounded border border-red-400/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300";
-                      return "rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] text-white/70";
+                      return "rounded border border-[var(--border)] bg-[var(--panel2)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]";
                     };
-                    if (!w?.bid && !w?.ask) return <span className="text-white/50">—</span>;
+                    if (!w?.bid && !w?.ask) return <span className="text-[var(--muted2)]">—</span>;
                     return (
                       <div className="relative space-y-1 pl-6">
                         <span
-                          className="absolute left-1 top-1 inline-flex h-4 w-4 items-center justify-center rounded border border-white/10 bg-white/5"
+                          className="absolute left-1 top-1 inline-flex h-4 w-4 items-center justify-center rounded border border-[var(--border)] bg-[var(--panel2)]"
                           title="Order book walls from Binance"
                         >
                           <BinanceMiniIcon className="h-3 w-3 text-yellow-400/90" />
