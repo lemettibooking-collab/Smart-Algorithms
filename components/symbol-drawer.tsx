@@ -143,17 +143,17 @@ export function SymbolDrawer({
             <aside
                 className={[
                     "fixed right-0 top-0 z-50 h-dvh w-full sm:w-[460px] md:w-[540px]",
-                    "border-l border-slate-800 bg-slate-950/80 backdrop-blur",
+                    "border-l border-[var(--border)] bg-[var(--panel)] backdrop-blur dark:border-slate-800 dark:bg-slate-950/80",
                     "transition-transform duration-200",
                     open ? "translate-x-0" : "translate-x-full",
                 ].join(" ")}
                 aria-hidden={!open}
             >
                 <div className="flex h-full flex-col">
-                    <div className="flex items-start justify-between gap-3 border-b border-slate-800 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-4 dark:border-slate-800">
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                                <div className="text-lg font-semibold text-slate-100">{symbol || "—"}</div>
+                                <div className="text-lg font-semibold text-[var(--text)] dark:text-slate-100">{symbol || "—"}</div>
                                 {row?.signal ? (
                                     <span
                                         className={[
@@ -165,22 +165,22 @@ export function SymbolDrawer({
                                     </span>
                                 ) : null}
                                 {row?.source === "fallback" ? (
-                                    <span className="rounded-full border border-slate-700 bg-slate-950/40 px-2.5 py-1 text-[12px] text-slate-300">
+                                    <span className="rounded-full border border-[var(--border)] bg-[var(--panel2)] px-2.5 py-1 text-[12px] text-[var(--muted)] dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
                                         fallback
                                     </span>
                                 ) : null}
                             </div>
 
-                            <div className="mt-1 text-sm text-slate-400">
-                                Price: <span className="text-slate-100">${row ? fmtPrice(row.price) : "—"}</span>
-                                <span className="mx-2 text-slate-700">•</span>
-                                TF: <span className="text-slate-100">{tf}</span>
+                            <div className="mt-1 text-sm text-[var(--muted)] dark:text-slate-400">
+                                Price: <span className="text-[var(--text)] dark:text-slate-100">${row ? fmtPrice(row.price) : "—"}</span>
+                                <span className="mx-2 text-[var(--muted2)] dark:text-slate-700">•</span>
+                                TF: <span className="text-[var(--text)] dark:text-slate-100">{tf}</span>
                             </div>
                         </div>
 
                         <button
                             onClick={onClose}
-                            className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 hover:border-slate-600"
+                            className="rounded-lg border border-[var(--border)] bg-[var(--panel2)] px-3 py-2 text-sm text-[var(--text)] hover:bg-[var(--hover)] dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-900/60"
                             title="Close"
                         >
                             <X className="h-4 w-4" />
@@ -191,21 +191,21 @@ export function SymbolDrawer({
                         <div className="grid grid-cols-2 gap-2">
                             <button
                                 onClick={() => window.open(`/symbol/${encodeURIComponent(symbol)}`, "_blank")}
-                                className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 hover:border-slate-600"
+                                className="rounded-xl border border-[var(--border)] bg-[var(--panel2)] px-3 py-2 text-sm text-[var(--text)] hover:bg-[var(--hover)] dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-100 dark:hover:border-slate-600 dark:hover:bg-slate-900/60"
                                 disabled={!symbol}
                             >
                                 Open chart
                             </button>
                             <button
                                 onClick={() => (window.location.href = `/terminal?symbol=${encodeURIComponent(symbol)}`)}
-                                className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 hover:border-slate-600"
+                                className="rounded-xl border border-[var(--border)] bg-[var(--panel2)] px-3 py-2 text-sm text-[var(--text)] hover:bg-[var(--hover)] dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-100 dark:hover:border-slate-600 dark:hover:bg-slate-900/60"
                                 disabled={!symbol}
                             >
                                 Open terminal
                             </button>
                             <button
                                 onClick={() => (window.location.href = `/bots?symbol=${encodeURIComponent(symbol)}`)}
-                                className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 hover:border-slate-600"
+                                className="rounded-xl border border-[var(--border)] bg-[var(--panel2)] px-3 py-2 text-sm text-[var(--text)] hover:bg-[var(--hover)] dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-100 dark:hover:border-slate-600 dark:hover:bg-slate-900/60"
                                 disabled={!symbol}
                             >
                                 Bot presets
@@ -219,27 +219,30 @@ export function SymbolDrawer({
                                     else cur.add(symbol);
                                     localStorage.setItem(key, JSON.stringify([...cur]));
                                 }}
-                                className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 hover:border-slate-600"
+                                className="rounded-xl border border-[var(--border)] bg-[var(--panel2)] px-3 py-2 text-sm text-[var(--text)] hover:bg-[var(--hover)] dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-100 dark:hover:border-slate-600 dark:hover:bg-slate-900/60"
                                 disabled={!symbol}
                             >
                                 Watch (local)
                             </button>
                         </div>
 
-                        <section className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
+                        <section className="rounded-xl border border-[var(--border)] bg-[var(--panel2)] p-3 dark:border-slate-800 dark:bg-slate-950/30">
                             <AdvancedChartWidget symbol={symbol} exchange={exchange} interval={chartInterval} locale="en" />
-                            <div className="mt-2 text-xs text-slate-500">
+                            <div className="mt-2 text-xs text-[var(--muted2)] dark:text-slate-500">
                                 Exchange: {exchange} • Interval: {chartInterval}
                             </div>
                         </section>
 
-                        <section className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
-                            <div className="mb-2 text-sm font-medium text-slate-200">Signals (last)</div>
+                        <section className="rounded-xl border border-[var(--border)] bg-[var(--panel2)] p-3 dark:border-slate-800 dark:bg-slate-950/30">
+                            <div className="mb-2 text-sm font-medium text-[var(--text)] dark:text-slate-200">Signals (last)</div>
 
                             {events.length ? (
                                 <div className="max-h-[260px] overflow-y-auto pr-1 space-y-2">
                                     {events.map((e) => (
-                                        <div key={e.id} className="rounded-lg border border-slate-800/60 bg-slate-950/40 p-3 text-xs">
+                                        <div
+                                            key={e.id}
+                                            className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-3 text-xs dark:border-slate-800/60 dark:bg-slate-950/40"
+                                        >
                                             <div className="flex items-center justify-between gap-2">
                                                 <span
                                                     className={[
@@ -249,9 +252,9 @@ export function SymbolDrawer({
                                                 >
                                                     {e.signal}
                                                 </span>
-                                                <span className="text-slate-500">{new Date(e.ts).toLocaleTimeString()}</span>
+                                                <span className="text-[var(--muted2)] dark:text-slate-500">{new Date(e.ts).toLocaleTimeString()}</span>
                                             </div>
-                                            <div className="mt-2 text-slate-400">
+                                            <div className="mt-2 text-[var(--muted)] dark:text-slate-400">
                                                 Δ {e.tf}:{" "}
                                                 <span
                                                     className={
@@ -260,16 +263,16 @@ export function SymbolDrawer({
                                                 >
                                                     {Number.isFinite(e.changePercent) ? `${e.changePercent.toFixed(2)}%` : "—"}
                                                 </span>
-                                                <span className="mx-2 text-slate-700">•</span>
+                                                <span className="mx-2 text-[var(--muted2)] dark:text-slate-700">•</span>
                                                 Spike: {e.volSpike == null ? "—" : `${e.volSpike.toFixed(2)}x`}
-                                                <span className="mx-2 text-slate-700">•</span>
+                                                <span className="mx-2 text-[var(--muted2)] dark:text-slate-700">•</span>
                                                 ${Number.isFinite(e.price) ? fmtPrice(e.price) : "—"}
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-xs text-slate-500">Пока нет событий по {symbol}.</div>
+                                <div className="text-xs text-[var(--muted2)] dark:text-slate-500">Пока нет событий по {symbol}.</div>
                             )}
                         </section>
                     </div>
