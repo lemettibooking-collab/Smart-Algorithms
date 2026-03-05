@@ -1,10 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { X } from "lucide-react";
-import { TerminalChart } from "@/src/shared/ui";
+import { AdvancedChartWidget } from "@/src/shared/ui";
 
 type TF = "24h" | "1m" | "5m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1M" | "1y";
+
+function toTvInterval(tf: string): string {
+    const value = String(tf ?? "").trim();
+    const lower = value.toLowerCase();
+    if (lower === "1m") return "1";
+    if (lower === "3m") return "3";
+    if (lower === "5m") return "5";
+    if (lower === "15m") return "15";
+    if (lower === "30m") return "30";
+    if (lower === "1h") return "60";
+    if (lower === "2h") return "120";
+    if (lower === "3h") return "180";
+    if (lower === "4h") return "240";
+    if (lower === "6h") return "360";
+    if (lower === "12h") return "720";
+    if (lower === "1d") return "D";
+    if (lower === "24h" || lower === "24h (ticker)") return "D";
+    if (lower === "1w") return "W";
+    if (value === "1M" || lower === "1mo") return "M";
+    return "240";
+}
 
 export type HotSymbol = {
     symbol: string;
@@ -22,6 +43,7 @@ export type HotSymbol = {
     signal: string;
 
     source?: "klines" | "fallback";
+    exchange?: "binance" | "mexc" | string;
 
     marketCap?: string;
     marketCapRaw?: number | null;
@@ -43,63 +65,13 @@ export type SignalEvent = {
     source?: "klines" | "fallback";
 };
 
-type KlineCandle = {
-    openTime: number;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-    volume: number;
-    closeTime: number;
-    quoteVolume?: number;
-};
-
-function tfToInterval(tf: TF) {
-    switch (tf) {
-        case "1m":
-            return "1m";
-        case "5m":
-            return "5m";
-        case "15m":
-            return "15m";
-        case "1h":
-            return "1h";
-        case "4h":
-            return "4h";
-        case "1d":
-            return "1d";
-        case "1w":
-            return "1w";
-        case "1M":
-            return "1M";
-        case "1y":
-            return "1d"; // год лучше дневками
-        case "24h":
-            return "1h"; // тикер-режим: график на 1h
-        default:
-            return "15m";
-    }
-}
-
 function fmtPrice(n: number) {
-  const abs = Math.abs(n);
-  const d = abs >= 1000 ? 2 : abs >= 1 ? 4 : 8;
-  return n.toFixed(d);
-}
-
-function lastSma(candles: KlineCandle[], period: number): number | null {
-    if (!Array.isArray(candles) || candles.length < period) return null;
-    let sum = 0;
-    for (let i = candles.length - period; i < candles.length; i += 1) {
-        const close = Number(candles[i]?.close);
-        if (!Number.isFinite(close)) return null;
-        sum += close;
-    }
-    return sum / period;
+    const abs = Math.abs(n);
+    const d = abs >= 1000 ? 2 : abs >= 1 ? 4 : 8;
+    return n.toFixed(d);
 }
 
 function signalBadge(signal: string) {
-    // под твои же цвета из feedSignalBadgeClass, но чуть проще
     switch (signal) {
         case "Breakout":
             return "border-emerald-400/45 bg-emerald-400/14 text-emerald-200";
@@ -136,13 +108,9 @@ export function SymbolDrawer({
     feed: SignalEvent[];
 }) {
     const symbol = row?.symbol ?? "";
-    const [loading, setLoading] = useState(false);
-    const [candles, setCandles] = useState<KlineCandle[]>([]);
-    const [showMA50, setShowMA50] = useState(true);
-    const [showMA100, setShowMA100] = useState(true);
-    const [showMA200, setShowMA200] = useState(true);
+    const exchange = row?.exchange ?? "binance";
+    const chartInterval = toTvInterval(tf);
 
-    // ESC to close
     useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
@@ -152,36 +120,6 @@ export function SymbolDrawer({
         return () => window.removeEventListener("keydown", onKey);
     }, [open, onClose]);
 
-    useEffect(() => {
-        if (!open || !symbol) return;
-
-        let aborted = false;
-        (async () => {
-            setLoading(true);
-            try {
-                const interval = tfToInterval(tf);
-                const limit = 160;
-
-                const res = await fetch(
-                    `/api/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`,
-                    { cache: "no-store" }
-                );
-                const json = await res.json();
-                if (aborted) return;
-                if (json?.ok && Array.isArray(json?.candles)) setCandles(json.candles as KlineCandle[]);
-                else setCandles([]);
-            } catch {
-                if (!aborted) setCandles([]);
-            } finally {
-                if (!aborted) setLoading(false);
-            }
-        })();
-
-        return () => {
-            aborted = true;
-        };
-    }, [open, symbol, tf]);
-
     const events = useMemo(() => {
         if (!symbol) return [];
         return feed
@@ -190,13 +128,8 @@ export function SymbolDrawer({
             .slice(0, 30);
     }, [feed, symbol]);
 
-    const ma50 = useMemo(() => lastSma(candles, 50), [candles]);
-    const ma100 = useMemo(() => lastSma(candles, 100), [candles]);
-    const ma200 = useMemo(() => lastSma(candles, 200), [candles]);
-
     return (
         <>
-            {/* Backdrop */}
             <div
                 className={[
                     "fixed inset-0 z-40 transition-opacity",
@@ -207,7 +140,6 @@ export function SymbolDrawer({
                 <div className="absolute inset-0 bg-black/60" />
             </div>
 
-            {/* Panel */}
             <aside
                 className={[
                     "fixed right-0 top-0 z-50 h-dvh w-full sm:w-[460px] md:w-[540px]",
@@ -218,7 +150,6 @@ export function SymbolDrawer({
                 aria-hidden={!open}
             >
                 <div className="flex h-full flex-col">
-                    {/* Header */}
                     <div className="flex items-start justify-between gap-3 border-b border-slate-800 px-4 py-4">
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
@@ -256,9 +187,7 @@ export function SymbolDrawer({
                         </button>
                     </div>
 
-                    {/* Body */}
                     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-                        {/* Actions */}
                         <div className="grid grid-cols-2 gap-2">
                             <button
                                 onClick={() => window.open(`/symbol/${encodeURIComponent(symbol)}`, "_blank")}
@@ -297,45 +226,13 @@ export function SymbolDrawer({
                             </button>
                         </div>
 
-                        {/* Terminal chart */}
                         <section className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
-                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                <div className="text-sm font-medium text-slate-200">Terminal Chart</div>
-                                <div className="flex items-center gap-2 text-xs text-slate-300">
-                                    <label className="inline-flex items-center gap-1 rounded border border-sky-300/30 bg-sky-400/10 px-2 py-1">
-                                        <input type="checkbox" checked={showMA50} onChange={(e) => setShowMA50(e.target.checked)} />
-                                        MA50
-                                    </label>
-                                    <label className="inline-flex items-center gap-1 rounded border border-amber-300/30 bg-amber-400/10 px-2 py-1">
-                                        <input type="checkbox" checked={showMA100} onChange={(e) => setShowMA100(e.target.checked)} />
-                                        MA100
-                                    </label>
-                                    <label className="inline-flex items-center gap-1 rounded border border-violet-300/30 bg-violet-400/10 px-2 py-1">
-                                        <input type="checkbox" checked={showMA200} onChange={(e) => setShowMA200(e.target.checked)} />
-                                        MA200
-                                    </label>
-                                </div>
-                            </div>
-                            <TerminalChart
-                                candles={candles}
-                                loading={loading}
-                                showMA50={showMA50}
-                                showMA100={showMA100}
-                                showMA200={showMA200}
-                            />
-                            <div className="mt-2 text-xs text-slate-400">
-                                MA50 {ma50 == null ? "—" : fmtPrice(ma50)}{" "}
-                                <span className="mx-1 text-slate-600">|</span>
-                                MA100 {ma100 == null ? "—" : fmtPrice(ma100)}{" "}
-                                <span className="mx-1 text-slate-600">|</span>
-                                MA200 {ma200 == null ? "—" : fmtPrice(ma200)}
-                            </div>
+                            <AdvancedChartWidget symbol={symbol} exchange={exchange} interval={chartInterval} locale="en" />
                             <div className="mt-2 text-xs text-slate-500">
-                                Interval: {tfToInterval(tf)} • Candles: {candles.length}
+                                Exchange: {exchange} • Interval: {chartInterval}
                             </div>
                         </section>
 
-                        {/* Events */}
                         <section className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
                             <div className="mb-2 text-sm font-medium text-slate-200">Signals (last)</div>
 
