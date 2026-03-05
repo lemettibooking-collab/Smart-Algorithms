@@ -1,4 +1,4 @@
-export type { HotFilters, SortDir, SortKey } from "@/src/features/hot-filters/model/filters";
+export type { HotFilters, SortDir, SortKey } from "./model/filters";
 export {
   DEFAULT_HOT_FILTERS,
   HOT_SPIKE_MODE_KEY,
@@ -8,4 +8,4 @@ export {
   sanitizeTf,
   saveSpikeMode,
   tfLabel,
-} from "@/src/features/hot-filters/model/filters";
+} from "./model/filters";

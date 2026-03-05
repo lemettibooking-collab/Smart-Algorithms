@@ -1,2 +1,2 @@
-export type { Exchange, AlertRow, AlertsResponse, Wall, WallsResponse } from "@/src/entities/alert/model/types";
-export { isAlertRow, normalizeAlertRows } from "@/src/entities/alert/lib/normalize";
+export type { Exchange, AlertRow, AlertsResponse, Wall, WallsResponse } from "./model/types";
+export { isAlertRow, normalizeAlertRows } from "./lib/normalize";

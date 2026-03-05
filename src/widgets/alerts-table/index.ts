@@ -1,2 +1,2 @@
-export { AlertsTable } from "@/src/widgets/alerts-table/ui/AlertsTable";
-export { useAlerts } from "@/src/widgets/alerts-table/model/useAlerts";
+export { AlertsTable } from "./ui/AlertsTable";
+export { useAlerts } from "./model/useAlerts";

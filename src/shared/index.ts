@@ -1,2 +1,2 @@
-export * as api from "@/src/shared/api";
-export * as lib from "@/src/shared/lib";
+export * as api from "./api";
+export * as lib from "./lib";
