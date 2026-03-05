@@ -94,6 +94,29 @@ function signalBadge(signal: string) {
     }
 }
 
+function headerSignalBadge(signal: string) {
+    switch (signal) {
+        case "Breakout":
+            return "border-emerald-300 bg-emerald-100 text-emerald-700 dark:border-emerald-400/45 dark:bg-emerald-400/14 dark:text-emerald-200";
+        case "Big Move":
+            return "border-green-300 bg-green-100 text-green-700 dark:border-green-400/45 dark:bg-green-400/14 dark:text-green-200";
+        case "Reversal Up":
+            return "border-teal-300 bg-teal-100 text-teal-700 dark:border-teal-400/45 dark:bg-teal-400/14 dark:text-teal-200";
+        case "Reversal Down":
+            return "border-fuchsia-300 bg-fuchsia-100 text-fuchsia-700 dark:border-fuchsia-400/45 dark:bg-fuchsia-400/14 dark:text-fuchsia-200";
+        case "Dump":
+            return "border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-400/45 dark:bg-rose-400/14 dark:text-rose-200";
+        case "Whale Activity":
+            return "border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-400/55 dark:bg-amber-400/14 dark:text-amber-200";
+        case "Watch":
+            return "border-sky-300 bg-sky-100 text-sky-700 dark:border-sky-400/55 dark:bg-sky-400/14 dark:text-sky-200";
+        case "Calm":
+            return "border-[var(--border)] bg-[var(--panel2)] text-[var(--muted)] dark:border-white/10 dark:bg-white/5 dark:text-white/65";
+        default:
+            return "border-[var(--border)] bg-[var(--panel2)] text-[var(--muted)] dark:border-white/10 dark:bg-white/5 dark:text-white/65";
+    }
+}
+
 export function SymbolDrawer({
     open,
     onClose,
@@ -158,7 +181,7 @@ export function SymbolDrawer({
                                     <span
                                         className={[
                                             "inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[12px] font-medium backdrop-blur",
-                                            signalBadge(row.signal),
+                                            headerSignalBadge(row.signal),
                                         ].join(" ")}
                                     >
                                         {row.signal}
