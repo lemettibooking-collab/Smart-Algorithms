@@ -1,4 +1,6 @@
 import { listEvents } from "@/lib/repos/eventsRepo";
+import { z } from "zod";
+import { validateQuery } from "@/src/shared/api";
 
 export const runtime = "nodejs";
 
@@ -10,28 +12,37 @@ function clamp(n: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, n));
 }
 
-function toNum(v: string | null | undefined, fallback: number): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
 function asObj(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
+
+const querySchema = z.object({
+  tf: z.string().trim().optional().default(""),
+  limit: z.coerce.number().default(200),
+  pollMs: z.coerce.number().default(2000),
+  includeCalm: z.preprocess((v) => {
+    const s = String(v ?? "").trim().toLowerCase();
+    return s === "1" || s === "true";
+  }, z.boolean()).default(false),
+  minScore: z.coerce.number().default(0),
+  signals: z.string().trim().optional().default(""),
+  since: z.coerce.number().optional(),
+});
 
 function sseChunk(event: EventType, data: unknown): Uint8Array {
   return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
 export async function GET(req: Request): Promise<Response> {
-  const url = new URL(req.url);
+  const v = validateQuery(req, querySchema);
+  if (!v.ok) return v.res;
 
-  const tf = (url.searchParams.get("tf") ?? "").trim();
-  const limit = clamp(toNum(url.searchParams.get("limit"), 200), 1, 1000);
-  const pollMs = clamp(toNum(url.searchParams.get("pollMs"), 2000), 500, 10_000);
-  const includeCalm = (url.searchParams.get("includeCalm") ?? "0") === "1";
-  const minScore = toNum(url.searchParams.get("minScore"), 0);
-  const signalsRaw = (url.searchParams.get("signals") ?? "").trim();
+  const tf = v.data.tf;
+  const limit = clamp(v.data.limit, 1, 1000);
+  const pollMs = clamp(v.data.pollMs, 500, 10_000);
+  const includeCalm = v.data.includeCalm;
+  const minScore = v.data.minScore;
+  const signalsRaw = v.data.signals;
   const signals = new Set(
     signalsRaw
       .split(",")
@@ -39,7 +50,7 @@ export async function GET(req: Request): Promise<Response> {
       .filter(Boolean)
   );
 
-  let lastTs = toNum(url.searchParams.get("since"), Date.now());
+  let lastTs = Number.isFinite(v.data.since) ? Number(v.data.since) : Date.now();
 
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
