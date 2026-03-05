@@ -68,7 +68,7 @@ export function useAlerts(params: UseAlertsParams) {
       setRows(nextRows);
       setSources(j.sources ?? null);
 
-      const symbols = Array.from(new Set(nextRows.map((x) => String(x.symbol ?? "").trim().toUpperCase()).filter(Boolean))).slice(0, 50);
+      const symbols = Array.from(new Set(nextRows.map((x) => String(x.symbol ?? "").trim().toUpperCase()).filter(Boolean))).slice(0, 10);
       if (symbols.length === 0) {
         setWallsMap({});
       } else {
