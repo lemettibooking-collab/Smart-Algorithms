@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchJson } from "@/src/shared/api";
 import { type Exchange, type HotResponse, type HotRow, type HotTf, normalizeHotRows, type SpikeMode } from "@/src/entities/hot";
 import { DEFAULT_HOT_FILTERS, loadSpikeMode, sanitizeExchange, sanitizeTf, saveSpikeMode } from "@/src/features/hot-filters";
 
@@ -22,6 +21,8 @@ export function useHot(params: UseHotParams) {
   const [loading, setLoading] = useState(false);
   const [lastTs, setLastTs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimitedUntilTs, setRateLimitedUntilTs] = useState<number | null>(null);
+  const [streamConnected, setStreamConnected] = useState(false);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [intervalSec, setIntervalSec] = useState(5);
@@ -29,6 +30,14 @@ export function useHot(params: UseHotParams) {
   const inFlightRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
+  const pollTimerRef = useRef<number | null>(null);
+  const backoffUntilRef = useRef(0);
+  const rowsRef = useRef<HotRow[]>(initialRows ?? []);
+  const streamRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
 
   useEffect(() => {
     setSpikeModeState(loadSpikeMode());
@@ -39,8 +48,31 @@ export function useHot(params: UseHotParams) {
     saveSpikeMode(next);
   }, []);
 
+  const buildQuery = useCallback(() => {
+    const tfSafe = sanitizeTf(tf, DEFAULT_HOT_FILTERS.tf);
+    const qs = new URLSearchParams();
+    qs.set("tf", tfSafe);
+    qs.set("limit", exchange === "mexc" ? "300" : "50");
+    qs.set("exchange", exchange);
+    qs.set("minVol", String(Math.max(0, Math.floor(minVol))));
+    qs.set("spikeMode", spikeMode);
+    return qs;
+  }, [tf, exchange, minVol, spikeMode]);
+
+  const applyHotResponse = useCallback((json: HotResponse) => {
+    if (!json?.ok) return;
+    if (json.tf) setTf((prev) => sanitizeTf(json.tf, prev));
+    if (json.exchange) setExchange((prev) => sanitizeExchange(json.exchange, prev));
+    const data = normalizeHotRows(Array.isArray(json.data) ? json.data : []);
+    setRows(data);
+    setLastTs(json.ts ?? Date.now());
+    setRateLimitedUntilTs(null);
+    setError(null);
+  }, []);
+
   const refresh = useCallback(async (): Promise<HotRow[]> => {
-    if (inFlightRef.current) return rows;
+    if (inFlightRef.current) return rowsRef.current;
+    if (Date.now() < backoffUntilRef.current) return rowsRef.current;
 
     inFlightRef.current = true;
     abortRef.current?.abort();
@@ -49,39 +81,36 @@ export function useHot(params: UseHotParams) {
 
     try {
       setLoading(true);
-      setError(null);
+      const qs = buildQuery();
 
-      const tfSafe = sanitizeTf(tf, DEFAULT_HOT_FILTERS.tf);
-      const qs = new URLSearchParams();
-      qs.set("tf", tfSafe);
-      qs.set("limit", exchange === "mexc" ? "300" : "50");
-      qs.set("exchange", exchange);
-      qs.set("minVol", String(Math.max(0, Math.floor(minVol))));
-      qs.set("spikeMode", spikeMode);
-
-      const json = await fetchJson<HotResponse>(`/api/hot?${qs.toString()}`, {
+      const res = await fetch(`/api/hot?${qs.toString()}`, {
         cache: "no-store",
         signal: ac.signal,
       });
-
+      if (res.status === 429) {
+        const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+        const retryAfterMsRaw = Number(body?.retryAfterMs);
+        const retryAfterMs = Number.isFinite(retryAfterMsRaw) && retryAfterMsRaw > 0 ? retryAfterMsRaw : 5_000;
+        const until = Date.now() + retryAfterMs;
+        backoffUntilRef.current = until;
+        setRateLimitedUntilTs(until);
+        setError(null);
+        return rowsRef.current;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as HotResponse;
       if (!json?.ok) throw new Error(json?.error || "API returned ok=false");
-
-      if (json.tf) setTf((prev) => sanitizeTf(json.tf, prev));
-      if (json.exchange) setExchange((prev) => sanitizeExchange(json.exchange, prev));
-
-      const data = normalizeHotRows(Array.isArray(json.data) ? json.data : []);
-      setRows(data);
-      setLastTs(json.ts ?? Date.now());
-      return data;
+      applyHotResponse(json);
+      return normalizeHotRows(Array.isArray(json.data) ? json.data : []);
     } catch (e: unknown) {
-      if (e instanceof DOMException && e.name === "AbortError") return rows;
+      if (e instanceof DOMException && e.name === "AbortError") return rowsRef.current;
       setError(e instanceof Error ? e.message : "Unknown error");
-      return rows;
+      return rowsRef.current;
     } finally {
       setLoading(false);
       inFlightRef.current = false;
     }
-  }, [rows, tf, exchange, minVol, spikeMode]);
+  }, [applyHotResponse, buildQuery]);
 
   useEffect(() => {
     if (mountedRef.current) return;
@@ -102,23 +131,62 @@ export function useHot(params: UseHotParams) {
   }, [tf, exchange, minVol, spikeMode, refresh]);
 
   useEffect(() => {
-    if (!autoRefresh) return;
-    let stopped = false;
+    if (!autoRefresh || streamConnected) return;
 
-    const loop = async () => {
-      while (!stopped) {
-        const ms = Math.max(2, intervalSec) * 1000;
-        await new Promise((r) => setTimeout(r, ms));
-        if (stopped) break;
+    const schedule = () => {
+      const ms = Math.max(2, intervalSec) * 1000;
+      if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = window.setTimeout(async () => {
         await refresh();
+        schedule();
+      }, ms);
+    };
+
+    schedule();
+    return () => {
+      if (pollTimerRef.current) {
+        window.clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [autoRefresh, intervalSec, refresh, streamConnected]);
+
+  useEffect(() => {
+    if (!autoRefresh || typeof window === "undefined") return;
+
+    const qs = buildQuery();
+    qs.set("pollMs", String(Math.max(2, intervalSec) * 1000));
+    const es = new EventSource(`/api/stream/hot?${qs.toString()}`);
+    streamRef.current = es;
+
+    const onHot = (ev: MessageEvent) => {
+      try {
+        const json = JSON.parse(ev.data) as HotResponse;
+        if (!json?.ok) return;
+        applyHotResponse(json);
+      } catch {
+        // ignore bad event payload
       }
     };
 
-    void loop();
-    return () => {
-      stopped = true;
+    es.addEventListener("hot", onHot as EventListener);
+    es.onopen = () => {
+      setStreamConnected(true);
+      setError(null);
     };
-  }, [autoRefresh, intervalSec, refresh]);
+    es.onerror = () => {
+      setStreamConnected(false);
+      es.close();
+      if (streamRef.current === es) streamRef.current = null;
+    };
+
+    return () => {
+      setStreamConnected(false);
+      es.removeEventListener("hot", onHot as EventListener);
+      es.close();
+      if (streamRef.current === es) streamRef.current = null;
+    };
+  }, [autoRefresh, intervalSec, buildQuery, applyHotResponse]);
 
   return {
     rows,
@@ -134,6 +202,8 @@ export function useHot(params: UseHotParams) {
     loading,
     lastTs,
     error,
+    rateLimitedUntilTs,
+    streamConnected,
     autoRefresh,
     setAutoRefresh,
     intervalSec,

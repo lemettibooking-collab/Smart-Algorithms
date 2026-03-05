@@ -160,6 +160,7 @@ export function HotClient({
     loading,
     lastTs,
     error,
+    rateLimitedUntilTs,
     autoRefresh,
     setAutoRefresh,
     intervalSec,
@@ -575,6 +576,11 @@ export function HotClient({
         {minVol > 0 ? <span>Min Vol: {fmtVol(minVol)}</span> : <span>Min Vol: off</span>}
         <span>Missing MCap: {missingMcapCount}</span>
         {topVolSpike ? <span>Sorting: volSpike desc</span> : null}
+        {rateLimitedUntilTs && rateLimitedUntilTs > nowTick ? (
+          <span className="text-amber-300">
+            Rate limited - retry in {Math.ceil((rateLimitedUntilTs - nowTick) / 1000)}s
+          </span>
+        ) : null}
         {error ? <span className="text-rose-400">Error: {error}</span> : null}
       </div>
 
