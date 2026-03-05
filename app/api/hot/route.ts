@@ -170,13 +170,10 @@ function isPositiveFinite(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v > 0;
 }
 
-function hotTtlMs(tf: string) {
-  if (tf === "1m") return 2_000;
-  if (tf === "3m") return 2_500;
-  if (tf === "5m") return 3_000;
-  if (tf === "15m") return 5_000;
-  if (tf === "30m") return 8_000;
-  return 15_000;
+const HOT_SNAPSHOT_TTL_MS = 5_000;
+
+function hotTtlMs() {
+  return HOT_SNAPSHOT_TTL_MS;
 }
 
 function isFastTf(tf: string) {
@@ -521,8 +518,6 @@ export async function GET(req: Request) {
 
   const exchange = q.exchange as Exchange;
   const tf = (q.tf || q.U || "15m").trim();
-  const rl = rateLimitOr429(req, { keyPrefix: "api:hot", max: 60, windowMs: 60_000 }, [exchange, tf]);
-  if (!rl.ok) return rl.res;
   if (exchange === "binance") ensureBinanceWsStarted();
   if (exchange === "mexc") ensureMexcWsStarted();
 
@@ -568,7 +563,7 @@ export async function GET(req: Request) {
     spikeMinSmaQuote,
   });
 
-  const ttlMs = hotTtlMs(isTickerMode(tf) ? "24h" : tf);
+  const ttlMs = hotTtlMs();
 
   const cached = hotCache.get(cacheKey);
   if (cached) return NextResponse.json(withLiveWs({ ...cached, cache: { hit: true, ttlMs } }, exchange));
@@ -578,6 +573,9 @@ export async function GET(req: Request) {
     const data = await inflight;
     return NextResponse.json(withLiveWs({ ...data, cache: { hit: true, inflight: true, ttlMs } }, exchange));
   }
+
+  const rl = rateLimitOr429(req, { keyPrefix: "api:hot", max: 300, windowMs: 60_000 }, [exchange, tf]);
+  if (!rl.ok) return rl.res;
 
   const p = (async () => {
     const fetch24hTicker = exchange === "mexc" ? mexc.fetch24hTicker : fetch24hTickerBinance;
@@ -994,5 +992,7 @@ export async function GET(req: Request) {
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: msg, ts: Date.now() }, { status: 500 });
+  } finally {
+    hotInFlight.delete(cacheKey);
   }
 }
