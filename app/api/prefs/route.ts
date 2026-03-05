@@ -1,40 +1,33 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getJson, setJson } from "@/lib/repos/kvRepo";
+import { validateBody, validateQuery } from "@/src/shared/api";
 
 export const runtime = "nodejs";
 
-type PostBody = {
-  key?: unknown;
-  value?: unknown;
-};
+const getQuerySchema = z.object({
+  key: z.string().trim().min(1, "key is required"),
+});
 
-function toStr(v: unknown) {
-  return String(v ?? "").trim();
-}
+const postBodySchema = z.object({
+  key: z.string().trim().min(1, "key is required"),
+  value: z.unknown().optional(),
+});
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const key = toStr(url.searchParams.get("key") ?? "");
-  if (!key) {
-    return NextResponse.json({ ok: false, error: "key is required" }, { status: 400 });
-  }
+  const v = validateQuery(req, getQuerySchema);
+  if (!v.ok) return v.res;
+  const key = v.data.key;
 
   const value = getJson<unknown>(key);
   return NextResponse.json({ ok: true, key, value });
 }
 
 export async function POST(req: Request) {
-  try {
-    const body = (await req.json()) as PostBody;
-    const key = toStr(body.key);
-    if (!key) {
-      return NextResponse.json({ ok: false, error: "key is required" }, { status: 400 });
-    }
+  const v = await validateBody(req, postBodySchema);
+  if (!v.ok) return v.res;
 
-    setJson(key, body.value ?? null);
-    return NextResponse.json({ ok: true, key });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "invalid_json";
-    return NextResponse.json({ ok: false, error: message }, { status: 400 });
-  }
+  const key = v.data.key;
+  setJson(key, v.data.value ?? null);
+  return NextResponse.json({ ok: true, key });
 }

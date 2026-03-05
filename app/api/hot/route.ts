@@ -1,10 +1,12 @@
 // app/api/hot/route.ts
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { TTLCache, InFlight } from "@/lib/server-cache";
 import { getMarketCapMap } from "@/lib/marketcap";
 import { getIconUrl } from "@/lib/icons";
 import { getMarketCapFallbackMap, type MarketCapSource } from "@/lib/marketcap-fallback";
 import { computeSignal as computeSignalStrict } from "@/lib/signals";
+import { boolFromQuery, rateLimitOr429, validateQuery } from "@/src/shared/api";
 
 import {
   fetch24hTicker as fetch24hTickerBinance,
@@ -62,35 +64,6 @@ function num(v: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function qNum(sp: URLSearchParams, key: string, def: number) {
-  const v = sp.get(key);
-  const n = Number(v);
-  return Number.isFinite(n) ? n : def;
-}
-function qBool(sp: URLSearchParams, key: string, def: boolean) {
-  const v = sp.get(key);
-  if (v === null) return def;
-  return v === "1" || v === "true" || v === "yes";
-}
-
-function getTf(sp: URLSearchParams, fallback = "15m") {
-  const tf = sp.get("tf")?.trim();
-  if (tf) return tf;
-  const U = sp.get("U")?.trim();
-  if (U) return U;
-  return fallback;
-}
-
-function getExchange(sp: URLSearchParams): Exchange {
-  const ex = (sp.get("exchange") || "binance").trim().toLowerCase();
-  return ex === "mexc" ? "mexc" : "binance";
-}
-
-function getSpikeMode(sp: URLSearchParams): SpikeMode {
-  const v = (sp.get("spikeMode") || "pulse").trim().toLowerCase();
-  return v === "scalp" ? "scalp" : "pulse";
-}
-
 function makeKey(prefix: string, obj: Record<string, unknown>) {
   return prefix + ":" + JSON.stringify(obj);
 }
@@ -116,6 +89,28 @@ function formatCompact(n: number): string {
 
 const hotCache = new TTLCache<Record<string, unknown>>(30_000, 200);
 const hotInFlight = new InFlight<Record<string, unknown>>();
+
+const querySchema = z.object({
+  tf: z.string().trim().optional(),
+  U: z.string().trim().optional(),
+  exchange: z.preprocess(
+    (v) => (typeof v === "string" && v.trim().toLowerCase() === "mexc" ? "mexc" : "binance"),
+    z.enum(["binance", "mexc"])
+  ).default("binance"),
+  spikeMode: z.preprocess(
+    (v) => (typeof v === "string" && v.trim().toLowerCase() === "scalp" ? "scalp" : "pulse"),
+    z.enum(["pulse", "scalp"])
+  ).default("pulse"),
+  limit: z.coerce.number().default(120),
+  klineCandidates: z.coerce.number().optional(),
+  candidatePool: z.coerce.number().optional(),
+  minVol: z.coerce.number().default(0),
+  includeStables: boolFromQuery.default(false),
+  candleSpike: boolFromQuery.default(true),
+  candleSpikeLimit: z.coerce.number().default(30),
+  spikeIlliquidFilter: boolFromQuery.default(true),
+  spikeMinSmaQuote: z.coerce.number().default(100),
+});
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);
@@ -520,35 +515,43 @@ function withLiveWs<T extends Record<string, unknown>>(payload: T, exchange: Exc
 }
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const sp = url.searchParams;
+  const v = validateQuery(req, querySchema);
+  if (!v.ok) return v.res;
+  const q = v.data;
 
-  const exchange = getExchange(sp);
+  const exchange = q.exchange as Exchange;
+  const tf = (q.tf || q.U || "15m").trim();
+  const rl = rateLimitOr429(req, { keyPrefix: "api:hot", max: 60, windowMs: 60_000 }, [exchange, tf]);
+  if (!rl.ok) return rl.res;
   if (exchange === "binance") ensureBinanceWsStarted();
   if (exchange === "mexc") ensureMexcWsStarted();
 
-  const tf = getTf(sp, "15m").trim();
-  const spikeMode = getSpikeMode(sp);
+  const spikeMode = q.spikeMode as SpikeMode;
   const spikeWindow = spikeWindowByMode(spikeMode);
   const spikeNeed = spikeWindow + 1;
-  const limitN = clamp(qNum(sp, "limit", 120), 1, 300);
+  const limitN = clamp(q.limit, 1, 300);
 
   const klineCandidatesDefault = exchange === "mexc" ? 120 : limitN;
-  let klineCandidates = clamp(qNum(sp, "klineCandidates", klineCandidatesDefault), 10, 300);
+  let klineCandidates = clamp(
+    typeof q.klineCandidates === "number" && Number.isFinite(q.klineCandidates) ? q.klineCandidates : klineCandidatesDefault,
+    10,
+    300
+  );
   klineCandidates = Math.min(klineCandidates, limitN);
 
   const candidatePoolDefault = exchange === "mexc" ? 2000 : Math.min(300, limitN);
-  const candidatePool = clamp(qNum(sp, "candidatePool", candidatePoolDefault), 50, 5000);
+  const candidatePool = clamp(
+    typeof q.candidatePool === "number" && Number.isFinite(q.candidatePool) ? q.candidatePool : candidatePoolDefault,
+    50,
+    5000
+  );
 
-  const minVol = qNum(sp, "minVol", 0);
-  const includeStables = qBool(sp, "includeStables", false);
-
-  const candleSpikeParam = sp.get("candleSpike");
-  const candleSpike = candleSpikeParam === null ? true : qBool(sp, "candleSpike", true);
-  const candleSpikeLimit = clamp(qNum(sp, "candleSpikeLimit", 30), 21, 60);
-
-  const spikeIlliquidFilter = qBool(sp, "spikeIlliquidFilter", true);
-  const spikeMinSmaQuote = clamp(qNum(sp, "spikeMinSmaQuote", 100), 0, 1_000_000);
+  const minVol = q.minVol;
+  const includeStables = q.includeStables;
+  const candleSpike = q.candleSpike;
+  const candleSpikeLimit = clamp(q.candleSpikeLimit, 21, 60);
+  const spikeIlliquidFilter = q.spikeIlliquidFilter;
+  const spikeMinSmaQuote = clamp(q.spikeMinSmaQuote, 0, 1_000_000);
 
   const cacheKey = makeKey("hot", {
     exchange,

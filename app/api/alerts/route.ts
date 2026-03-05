@@ -1,6 +1,8 @@
 // app/api/alerts/route.ts
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { TTLCache, InFlight } from "@/lib/server-cache";
+import { boolFromQuery, rateLimitOr429, validateQuery } from "@/src/shared/api";
 
 export const runtime = "nodejs";
 
@@ -231,18 +233,39 @@ function sortRows(rows: AlertRow[], sort: Sort) {
     });
 }
 
+const querySchema = z.object({
+    tf: z.string().trim().default("15m"),
+    includeCalm: boolFromQuery.default(false),
+    minScore: z.coerce.number().default(0),
+    limit: z.coerce.number().default(150),
+    dedupe: z.preprocess((v) => {
+        const s = String(v ?? "").trim();
+        if (!s) return true;
+        return s !== "0" && s.toLowerCase() !== "false";
+    }, z.boolean()).default(true),
+    sort: z.enum(["score", "change", "change24h", "spike"]).default("score"),
+    signals: z.string().optional(),
+    includeStables: z.preprocess((v) => {
+        if (v == null) return "0";
+        return String(v);
+    }, z.string()).default("0"),
+    minVol: z.coerce.number().optional(),
+});
+
 export async function GET(req: Request) {
-    const url = new URL(req.url);
+    const v = validateQuery(req, querySchema);
+    if (!v.ok) return v.res;
+    const rl = rateLimitOr429(req, { keyPrefix: "api:alerts", max: 60, windowMs: 60_000 }, [v.data.tf]);
+    if (!rl.ok) return rl.res;
 
-    const tf = url.searchParams.get("tf") ?? "15m";
-    const includeCalm = url.searchParams.get("includeCalm") === "1";
-    const minScore = Number(url.searchParams.get("minScore") ?? "0") || 0;
-    const limit = clamp(Number(url.searchParams.get("limit") ?? "150") || 150, 1, 300);
+    const tf = v.data.tf;
+    const includeCalm = v.data.includeCalm;
+    const minScore = v.data.minScore;
+    const limit = clamp(v.data.limit, 1, 300);
+    const dedupe = v.data.dedupe;
+    const sort = v.data.sort as Sort;
 
-    const dedupe = url.searchParams.get("dedupe") !== "0"; // default true
-    const sort = (url.searchParams.get("sort") ?? "score") as Sort;
-
-    const signalsParam = url.searchParams.get("signals");
+    const signalsParam = v.data.signals;
     const allowSignals = new Set(
         String(signalsParam ?? "")
             .split(",")
@@ -253,8 +276,8 @@ export async function GET(req: Request) {
     const hotParams = new URLSearchParams();
     hotParams.set("tf", tf);
     hotParams.set("limit", String(limit));
-    hotParams.set("includeStables", url.searchParams.get("includeStables") ?? "0");
-    if (url.searchParams.has("minVol")) hotParams.set("minVol", url.searchParams.get("minVol")!);
+    hotParams.set("includeStables", v.data.includeStables);
+    if (typeof v.data.minVol === "number" && Number.isFinite(v.data.minVol)) hotParams.set("minVol", String(v.data.minVol));
 
     const cacheKey =
         `alerts:v4:${hotParams.toString()}` +

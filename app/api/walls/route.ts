@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { TTLCache, InFlight, createLimiter, fetchWithRetry } from "@/lib/server-cache";
+import { rateLimitOr429, validateQuery } from "@/src/shared/api";
 
 export const runtime = "nodejs";
 
@@ -43,6 +45,10 @@ const depthInFlight = new InFlight<DepthSnapshot>();
 const limit = createLimiter(8);
 
 const sideStateMap = new Map<string, SideState>();
+
+const querySchema = z.object({
+    symbols: z.string().trim().min(1, "symbols is required"),
+});
 
 function parseLevels(raw: unknown): DepthLevel[] {
     if (!Array.isArray(raw)) return [];
@@ -184,8 +190,11 @@ async function calcWalls(symbol: string): Promise<SymbolWalls> {
 }
 
 export async function GET(req: Request) {
-    const url = new URL(req.url);
-    const rawSymbols = (url.searchParams.get("symbols") ?? "")
+    const v = validateQuery(req, querySchema);
+    if (!v.ok) return v.res;
+    const rl = rateLimitOr429(req, { keyPrefix: "api:walls", max: 20, windowMs: 60_000 });
+    if (!rl.ok) return rl.res;
+    const rawSymbols = v.data.symbols
         .split(",")
         .map((s) => s.trim().toUpperCase())
         .filter(Boolean);
