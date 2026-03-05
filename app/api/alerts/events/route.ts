@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { TTLCache, InFlight } from "@/lib/server-cache";
 import { computeEventId, listEvents, putEvent } from "@/lib/repos/eventsRepo";
-import { validateQuery } from "@/src/shared/api";
+import { rateLimitOr429, validateQuery } from "@/src/shared/api";
 
 export const runtime = "nodejs";
 
@@ -186,6 +186,8 @@ const querySchema = z.object({
 export async function GET(req: Request) {
     const v = validateQuery(req, querySchema);
     if (!v.ok) return v.res;
+    const rl = rateLimitOr429(req, { keyPrefix: "api:alerts-events", max: 120, windowMs: 60_000 }, [v.data.tf]);
+    if (!rl.ok) return rl.res;
     const url = new URL(req.url);
 
     const tf = v.data.tf;

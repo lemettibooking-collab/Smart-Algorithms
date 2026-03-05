@@ -6,7 +6,7 @@ import { getMarketCapMap } from "@/lib/marketcap";
 import { getIconUrl } from "@/lib/icons";
 import { getMarketCapFallbackMap, type MarketCapSource } from "@/lib/marketcap-fallback";
 import { computeSignal as computeSignalStrict } from "@/lib/signals";
-import { boolFromQuery, validateQuery } from "@/src/shared/api";
+import { boolFromQuery, rateLimitOr429, validateQuery } from "@/src/shared/api";
 
 import {
   fetch24hTicker as fetch24hTickerBinance,
@@ -520,10 +520,12 @@ export async function GET(req: Request) {
   const q = v.data;
 
   const exchange = q.exchange as Exchange;
+  const tf = (q.tf || q.U || "15m").trim();
+  const rl = rateLimitOr429(req, { keyPrefix: "api:hot", max: 60, windowMs: 60_000 }, [exchange, tf]);
+  if (!rl.ok) return rl.res;
   if (exchange === "binance") ensureBinanceWsStarted();
   if (exchange === "mexc") ensureMexcWsStarted();
 
-  const tf = (q.tf || q.U || "15m").trim();
   const spikeMode = q.spikeMode as SpikeMode;
   const spikeWindow = spikeWindowByMode(spikeMode);
   const spikeNeed = spikeWindow + 1;

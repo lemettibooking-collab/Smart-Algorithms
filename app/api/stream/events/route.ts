@@ -1,6 +1,6 @@
 import { listEvents } from "@/lib/repos/eventsRepo";
 import { z } from "zod";
-import { validateQuery } from "@/src/shared/api";
+import { rateLimitOr429, validateQuery } from "@/src/shared/api";
 
 export const runtime = "nodejs";
 
@@ -36,6 +36,8 @@ function sseChunk(event: EventType, data: unknown): Uint8Array {
 export async function GET(req: Request): Promise<Response> {
   const v = validateQuery(req, querySchema);
   if (!v.ok) return v.res;
+  const rl = rateLimitOr429(req, { keyPrefix: "api:stream-events", max: 30, windowMs: 10 * 60_000 }, [v.data.tf]);
+  if (!rl.ok) return rl.res;
 
   const tf = v.data.tf;
   const limit = clamp(v.data.limit, 1, 1000);

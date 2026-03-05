@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { TTLCache, InFlight, createLimiter, fetchWithRetry } from "@/lib/server-cache";
-import { validateQuery } from "@/src/shared/api";
+import { rateLimitOr429, validateQuery } from "@/src/shared/api";
 
 export const runtime = "nodejs";
 
@@ -192,6 +192,8 @@ async function calcWalls(symbol: string): Promise<SymbolWalls> {
 export async function GET(req: Request) {
     const v = validateQuery(req, querySchema);
     if (!v.ok) return v.res;
+    const rl = rateLimitOr429(req, { keyPrefix: "api:walls", max: 20, windowMs: 60_000 });
+    if (!rl.ok) return rl.res;
     const rawSymbols = v.data.symbols
         .split(",")
         .map((s) => s.trim().toUpperCase())

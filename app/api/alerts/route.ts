@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { TTLCache, InFlight } from "@/lib/server-cache";
-import { boolFromQuery, validateQuery } from "@/src/shared/api";
+import { boolFromQuery, rateLimitOr429, validateQuery } from "@/src/shared/api";
 
 export const runtime = "nodejs";
 
@@ -255,6 +255,8 @@ const querySchema = z.object({
 export async function GET(req: Request) {
     const v = validateQuery(req, querySchema);
     if (!v.ok) return v.res;
+    const rl = rateLimitOr429(req, { keyPrefix: "api:alerts", max: 60, windowMs: 60_000 }, [v.data.tf]);
+    if (!rl.ok) return rl.res;
 
     const tf = v.data.tf;
     const includeCalm = v.data.includeCalm;

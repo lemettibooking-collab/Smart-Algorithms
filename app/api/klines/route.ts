@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import * as binance from "@/lib/binance";
 import * as mexc from "@/lib/mexc";
-import { validateQuery } from "@/src/shared/api";
+import { rateLimitOr429, validateQuery } from "@/src/shared/api";
 
 export const runtime = "nodejs";
 
@@ -30,6 +30,8 @@ export async function GET(req: Request) {
   const symbol = v.data.symbol.trim().toUpperCase();
   const interval = v.data.interval.trim();
   const limit = clamp(v.data.limit, 1, 1000);
+  const rl = rateLimitOr429(req, { keyPrefix: "api:klines", max: 120, windowMs: 60_000 }, [exchange, symbol]);
+  if (!rl.ok) return rl.res;
 
   const api = exchange === "mexc" ? mexc : binance;
 
