@@ -33,15 +33,18 @@ type WallsResponse = { ts: number; data: Record<string, SymbolWalls> };
 
 const BINANCE_BASE = "https://api.binance.com";
 const DEPTH_LIMIT = 100;
-const MAX_SYMBOLS = 50;
+const MAX_SYMBOLS = 30;
 const RANGE_PCT = 0.01; // +/-1%
 const MIN_NOTIONAL_USDT = 100_000;
 const EATING_DROP_RATIO = 0.9; // >10% drop
 const NEW_HOLD_MS = 10_000;
 const REMOVED_KEEP_MS = 30_000;
+const LIST_TTL_MS = 12_000;
 
 const depthCache = new TTLCache<DepthSnapshot>(2500, 10_000);
 const depthInFlight = new InFlight<DepthSnapshot>();
+const listCache = new TTLCache<Record<string, SymbolWalls>>(LIST_TTL_MS, 2_000);
+const listInFlight = new InFlight<Record<string, SymbolWalls>>();
 const limit = createLimiter(8);
 
 const sideStateMap = new Map<string, SideState>();
@@ -199,19 +202,38 @@ export async function GET(req: Request) {
         .map((s) => s.trim().toUpperCase())
         .filter(Boolean);
     const uniq = Array.from(new Set(rawSymbols)).slice(0, MAX_SYMBOLS);
+    const listKey = uniq.slice().sort().join(",");
 
-    const data: Record<string, SymbolWalls> = {};
-    if (uniq.length === 0) return NextResponse.json<WallsResponse>({ ts: Date.now(), data });
+    if (uniq.length === 0) return NextResponse.json<WallsResponse>({ ts: Date.now(), data: {} });
+    const cached = listCache.get(listKey);
+    if (cached) return NextResponse.json<WallsResponse>({ ts: Date.now(), data: cached });
 
-    await Promise.all(
-        uniq.map(async (symbol) => {
-            try {
-                data[symbol] = await calcWalls(symbol);
-            } catch {
-                data[symbol] = {};
-            }
-        })
-    );
+    const inflight = listInFlight.get(listKey);
+    if (inflight) {
+        const data = await inflight;
+        return NextResponse.json<WallsResponse>({ ts: Date.now(), data });
+    }
 
-    return NextResponse.json<WallsResponse>({ ts: Date.now(), data });
+    const p = (async () => {
+        const data: Record<string, SymbolWalls> = {};
+        await Promise.all(
+            uniq.map(async (symbol) => {
+                try {
+                    data[symbol] = await calcWalls(symbol);
+                } catch {
+                    data[symbol] = {};
+                }
+            })
+        );
+        listCache.set(listKey, data, LIST_TTL_MS);
+        return data;
+    })();
+
+    listInFlight.set(listKey, p);
+    try {
+        const data = await p;
+        return NextResponse.json<WallsResponse>({ ts: Date.now(), data });
+    } finally {
+        listInFlight.delete(listKey);
+    }
 }
