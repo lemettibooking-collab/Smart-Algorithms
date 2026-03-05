@@ -128,6 +128,9 @@ function CoinLogo({
 }) {
   const base = (baseAsset ?? baseAssetFromSymbol(symbol)).toUpperCase();
   const cacheKey = `coinlogo:url:${base}`;
+  const initialSrc = (typeof logoUrl === "string" && logoUrl.trim() ? logoUrl.trim() : "")
+    || (typeof iconUrl === "string" && iconUrl.trim() ? iconUrl.trim() : "")
+    || "";
 
   const candidates = useMemo(() => {
     return [
@@ -139,19 +142,13 @@ function CoinLogo({
     ].filter(Boolean);
   }, [logoUrl, iconUrl, base]);
 
-  const [idx, setIdx] = useState(0);
-  const sources = useMemo(() => {
-    let cached = "";
-    try {
-      const c = localStorage.getItem(cacheKey);
-      cached = c && c.startsWith("http") ? c : "";
-    } catch {
-      cached = "";
-    }
+  const [idx, setIdx] = useState<number>(() => {
+    if (!initialSrc) return 0;
+    const i = candidates.indexOf(initialSrc);
+    return i >= 0 ? i : 0;
+  });
+  const sources = candidates;
 
-    if (!cached) return candidates;
-    return [cached, ...candidates.filter((x) => x !== cached)];
-  }, [cacheKey, candidates]);
   const safeIdx = Math.max(0, Math.min(idx, Math.max(0, sources.length - 1)));
   const src = sources[safeIdx] || "";
 
@@ -281,6 +278,7 @@ export function HotTable({
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-3">
                       <CoinLogo
+                        key={`${row.symbol}:${row.logoUrl ?? ""}:${row.iconUrl ?? ""}:${baseAsset ?? ""}`}
                         symbol={row.symbol}
                         logoUrl={row.logoUrl}
                         iconUrl={row.iconUrl}
