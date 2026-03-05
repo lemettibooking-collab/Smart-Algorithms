@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type TvExchange = "binance" | "mexc" | string;
 
@@ -25,11 +25,25 @@ export function AdvancedChartWidget({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const tvSymbol = useMemo(() => mapTvSymbol(symbol, exchange), [exchange, symbol]);
+  const [isDark, setIsDark] = useState(true);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const syncTheme = () => setIsDark(root.classList.contains("dark"));
+    syncTheme();
+
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     el.innerHTML = "";
+    const root = document.documentElement;
+    const panel2 = getComputedStyle(root).getPropertyValue("--panel2").trim();
+    const lightBg = panel2 || "#F6F8FC";
 
     const widgetHost = document.createElement("div");
     widgetHost.className = "tradingview-widget-container__widget h-full w-full";
@@ -44,8 +58,8 @@ export function AdvancedChartWidget({
       symbol: tvSymbol,
       interval,
       timezone: "exchange",
-      theme: "dark",
-      style: "3",
+      theme: isDark ? "dark" : "light",
+      style: "1",
       locale,
       allow_symbol_change: false,
       withdateranges: true,
@@ -53,7 +67,7 @@ export function AdvancedChartWidget({
       hide_top_toolbar: false,
       save_image: false,
       calendar: false,
-      backgroundColor: "rgba(2, 6, 23, 0)",
+      backgroundColor: isDark ? "rgba(2, 6, 23, 0)" : lightBg,
       details: false,
       hotlist: false,
       studies: [],
@@ -64,10 +78,10 @@ export function AdvancedChartWidget({
     return () => {
       el.innerHTML = "";
     };
-  }, [interval, locale, tvSymbol]);
+  }, [interval, isDark, locale, tvSymbol]);
 
   return (
-    <div className="relative h-[460px] w-full overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/40">
+    <div className="relative h-[460px] w-full overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--panel2)]">
       <div ref={containerRef} className="tradingview-widget-container h-full w-full" />
     </div>
   );

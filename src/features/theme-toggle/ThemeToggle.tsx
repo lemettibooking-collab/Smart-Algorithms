@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 
 const THEME_KEY = "sa-theme";
 
@@ -35,17 +35,26 @@ function MoonIcon() {
 }
 
 export function ThemeToggle() {
-  const [isDark, setIsDark] = useState(() => {
-    if (typeof document === "undefined") return true;
-    return document.documentElement.classList.contains("dark");
-  });
+  const isDark = useSyncExternalStore(
+    (onStoreChange) => {
+      if (typeof document === "undefined") return () => {};
+      const root = document.documentElement;
+      const observer = new MutationObserver(() => onStoreChange());
+      observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+      return () => observer.disconnect();
+    },
+    () => {
+      if (typeof document === "undefined") return true;
+      return document.documentElement.classList.contains("dark");
+    },
+    () => true,
+  );
 
   const onToggle = () => {
     const root = document.documentElement;
     const nextDark = !root.classList.contains("dark");
     root.classList.toggle("dark", nextDark);
     localStorage.setItem(THEME_KEY, nextDark ? "dark" : "light");
-    setIsDark(nextDark);
   };
 
   return (
