@@ -497,7 +497,7 @@ export function HotClient({
   return (
     <div className="space-y-4">
       <TopbarControlsSlot>
-        <div className="hidden lg:block rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-5 py-4 shadow-[var(--shadowSm)]">{Controls}</div>
+        <div className="hidden lg:block rounded-2xl border border-[var(--border)] bg-[var(--controlsBg)] px-5 py-4 shadow-[var(--shadowSm)] dark:bg-[var(--panel)]">{Controls}</div>
       </TopbarControlsSlot>
 
       <StatusStrip
@@ -523,7 +523,9 @@ export function HotClient({
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadowSm)]">
         <div className="flex flex-wrap items-center gap-3 rounded-lg border-b border-[var(--border)] bg-[var(--panel2)] px-2 py-2">
-          <div className="font-medium text-[var(--text)]">Signals Feed</div>
+          <div className="font-medium text-slate-900 dark:text-[var(--text)]" style={{ textShadow: "var(--titleTextShadow)" }}>
+            Signals Feed
+          </div>
 
           <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
             <input type="checkbox" checked={onlyStrong} onChange={(e) => setOnlyStrong(e.target.checked)} className="h-4 w-4" />
@@ -592,7 +594,7 @@ export function HotClient({
         )}
       </div>
 
-      <div className="lg:hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-4 py-4 shadow-[var(--shadowSm)]">{Controls}</div>
+      <div className="lg:hidden rounded-2xl border border-[var(--border)] bg-[var(--controlsBg)] px-4 py-4 shadow-[var(--shadowSm)] dark:bg-[var(--panel)]">{Controls}</div>
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--muted2)]">
         <span>Rows: {filteredSorted.length}</span>

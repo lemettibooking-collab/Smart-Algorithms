@@ -19,7 +19,7 @@ export default function Sidebar() {
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--shadowSm)]">
                 <div className="flex items-center gap-3">
                     {/* LOGO */}
-                    <div className="relative h-10 w-10 overflow-hidden rounded-xl bg-[#0b1220] ring-1 ring-white/10">
+                    <div className="relative h-10 w-10 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--controlsBg)] dark:border-white/10 dark:bg-[#0b1220]">
                         <div className="pointer-events-none absolute -top-4 left-2 h-8 w-8 rounded-full bg-white/10 blur-xl" />
                         <Image
                             src="/brand/logo.png"
@@ -34,13 +34,9 @@ export default function Sidebar() {
                     {/* Title */}
                     <div className="flex h-10 items-center">
                         <div
-                            className="text-base font-semibold leading-none text-white/92"
+                            className="text-base font-semibold leading-none text-slate-900 dark:text-white/92"
                             style={{
-                                // тонкая "обводка" + мягкий неон в цвет accent
-                                textShadow: [
-                                    "0 0 0.6px rgba(53,224,201,0.85)", // edge (stroke-like)
-                                    "0 0 10px rgba(53,224,201,0.20)",  // glow
-                                ].join(", "),
+                                textShadow: "var(--brandTextShadow)",
                             }}
                         >
                             Smart Algorithms

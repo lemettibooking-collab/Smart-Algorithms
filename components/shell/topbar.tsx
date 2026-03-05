@@ -7,7 +7,9 @@ export default function Topbar() {
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-5 py-4 shadow-[var(--shadowSm)]">
             <div className="flex items-center gap-4">
                 <div className="min-w-0">
-                    <div className="text-sm font-semibold text-[var(--text)]">Dashboard</div>
+                    <div className="text-sm font-semibold text-slate-900 dark:text-[var(--text)]" style={{ textShadow: "var(--titleTextShadow)" }}>
+                        Dashboard
+                    </div>
                     <div className="text-xs text-[var(--muted2)]">Real-time crypto scanner</div>
                 </div>
 
