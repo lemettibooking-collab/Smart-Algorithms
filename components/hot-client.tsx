@@ -1,62 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HotTable } from "@/components/hot-table";
 import TopbarControlsSlot from "@/components/shell/topbar-controls-slot";
 import { Search, SlidersHorizontal, ArrowUpDown, RefreshCw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SymbolDrawer } from "@/components/symbol-drawer";
-
-type TF = "24h" | "1m" | "5m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1M" | "1y";
-type Exchange = "binance" | "mexc";
-type SpikeMode = "pulse" | "scalp";
-
-export type HotSymbol = {
-  symbol: string;
-  price: number;
-
-  changePercent: number;
-  change24hPercent: number;
-  changeApprox?: boolean;
-
-  volume: string;
-  volumeRaw?: number;
-
-  volSpike: number | null;
-  spikeCandles?: number;
-  spikeNeed?: number;
-  newListing?: boolean;
-  spikeMode?: SpikeMode;
-  score: number;
-  signal: string;
-
-  source?: "klines" | "fallback";
-
-  marketCap?: string;
-  marketCapRaw?: number | null;
-
-  logoUrl?: string | null;
-  iconUrl?: string | null;
-};
-
-type HotResponse = {
-  ok: boolean;
-  tf?: TF;
-  exchange?: Exchange;
-  data: HotSymbol[];
-  ts: number;
-  error?: string;
-
-  degraded?: boolean;
-  degradeReason?: string[];
-  computedBy?: {
-    klines: number;
-    tickerFallback: number;
-    wsUsed?: number;
-    rejected: number;
-  };
-};
+import { HotTable, useHot } from "@/src/widgets/hot-table";
+import type { HotRow as HotSymbol, HotTf as TF } from "@/src/entities/hot";
+import { sanitizeExchange, sanitizeSpikeMode, sanitizeTf, tfLabel } from "@/src/features/hot-filters";
 
 type SortKey = "score" | "symbol" | "price" | "changePercent" | "volume" | "volSpike" | "signal";
 type SortDir = "asc" | "desc";
@@ -73,37 +25,7 @@ type SignalEvent = {
   source?: "klines" | "fallback";
 };
 
-function asRecord(v: unknown): Record<string, unknown> | null {
-  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
-  return v as Record<string, unknown>;
-}
-
-function normalizeHotRows(rows: unknown[]): HotSymbol[] {
-  return rows.map((row) => {
-    const rec = asRecord(row);
-    if (!rec) return row as HotSymbol;
-
-    const spikeCandlesNum = Number(rec.spikeCandles);
-    const spikeNeedNum = Number(rec.spikeNeed);
-
-    const spikeCandles = Number.isFinite(spikeCandlesNum) ? spikeCandlesNum : undefined;
-    const spikeNeed = Number.isFinite(spikeNeedNum) ? spikeNeedNum : undefined;
-
-    const newListingRaw = rec.newListing;
-    const newListing = newListingRaw === true || newListingRaw === "true";
-
-    const spikeModeRaw = rec.spikeMode;
-    const spikeMode = spikeModeRaw === "scalp" ? "scalp" : spikeModeRaw === "pulse" ? "pulse" : undefined;
-
-    return {
-      ...(row as HotSymbol),
-      spikeCandles,
-      spikeNeed,
-      newListing,
-      spikeMode,
-    };
-  });
-}
+export type { HotSymbol };
 
 function parseVolume(v: unknown) {
   const s = String(v ?? "").trim().toUpperCase();
@@ -134,28 +56,6 @@ function getSortValue(row: HotSymbol, key: SortKey): string | number {
     default:
       return "";
   }
-}
-
-function tfLabel(tf: TF) {
-  return tf === "24h" ? "24h %" : `Δ ${tf}`;
-}
-
-function sanitizeTf(v: unknown, fallback: TF): TF {
-  const s = (typeof v === "string" ? v : "").trim() as TF;
-  const allowed: TF[] = ["24h", "1m", "5m", "15m", "1h", "4h", "1d", "1w", "1M", "1y"];
-  return (allowed.includes(s) ? s : fallback) as TF;
-}
-
-function sanitizeExchange(v: unknown, fallback: Exchange): Exchange {
-  const s = (typeof v === "string" ? v : "").trim().toLowerCase();
-  if (s === "mexc") return "mexc";
-  if (s === "binance") return "binance";
-  return fallback;
-}
-
-function sanitizeSpikeMode(v: unknown, fallback: SpikeMode): SpikeMode {
-  const s = (typeof v === "string" ? v : "").trim().toLowerCase();
-  return s === "scalp" ? "scalp" : fallback;
 }
 
 function fmtVol(n: number) {
@@ -229,34 +129,17 @@ export function HotClient({
   initialRows: HotSymbol[];
   initialTf?: TF;
 }) {
-  const [rows, setRows] = useState<HotSymbol[]>(initialRows ?? []);
   const [q, setQ] = useState("");
-  const [tf, setTf] = useState<TF>(() => sanitizeTf(initialTf ?? "24h", "24h"));
-
-  const [exchange, setExchange] = useState<Exchange>("binance");
-  const [spikeMode, setSpikeMode] = useState<SpikeMode>("pulse");
-
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const [intervalSec, setIntervalSec] = useState(5);
-
-  const [loading, setLoading] = useState(false);
-  const [lastTs, setLastTs] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
   const [minMcapB, setMinMcapB] = useState<number>(0);
   const [topVolSpike, setTopVolSpike] = useState<boolean>(false);
-
-  const [minVol, setMinVol] = useState<number>(0);
   const [minVolText, setMinVolText] = useState<string>("0");
 
   const [feed, setFeed] = useState<SignalEvent[]>([]);
   const [feedPaused, setFeedPaused] = useState(false);
   const [onlyStrong, setOnlyStrong] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
-
   const prevSignalRef = useRef<Map<string, string>>(new Map());
   const lastEventTsRef = useRef<Map<string, number>>(new Map());
   const FEED_MAX = 120;
@@ -265,6 +148,26 @@ export function HotClient({
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedRow, setSelectedRow] = useState<HotSymbol | null>(null);
+
+  const {
+    rows,
+    tf,
+    setTf,
+    exchange,
+    setExchange,
+    spikeMode,
+    setSpikeMode,
+    minVol,
+    setMinVol,
+    loading,
+    lastTs,
+    error,
+    autoRefresh,
+    setAutoRefresh,
+    intervalSec,
+    setIntervalSec,
+    refresh,
+  } = useHot({ initialRows, initialTf });
 
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(Date.now()), 1000);
@@ -280,27 +183,6 @@ export function HotClient({
   useEffect(() => {
     setMinVolText(String(minVol));
   }, [minVol]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("hot:spikeMode");
-      if (raw) setSpikeMode(sanitizeSpikeMode(raw, "pulse"));
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("hot:spikeMode", spikeMode);
-    } catch {
-      // ignore
-    }
-  }, [spikeMode]);
-
-  const inFlightRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
-  const mountedRef = useRef(false);
 
   const pushFeedEvents = useCallback(
     (tfSafe: TF, data: HotSymbol[]) => {
@@ -324,8 +206,8 @@ export function HotClient({
         const prevSig = prev.get(sym);
         const changed = prevSig !== sig;
 
-        const lastTs = lastEv.get(sym) ?? 0;
-        const inCooldown = tsNow - lastTs < COOLDOWN_MS;
+        const lastEventTs = lastEv.get(sym) ?? 0;
+        const inCooldown = tsNow - lastEventTs < COOLDOWN_MS;
 
         if (changed && !inCooldown) {
           lastEv.set(sym, tsNow);
@@ -355,100 +237,15 @@ export function HotClient({
     [feedPaused]
   );
 
-  const refresh = useCallback(async () => {
-    if (inFlightRef.current) return;
-
-    inFlightRef.current = true;
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const tfSafe = sanitizeTf(tf, "24h");
-      const qs = new URLSearchParams();
-      qs.set("tf", tfSafe);
-
-      // ✅ show more rows for mexc so you can see "how many left" after filter
-      qs.set("limit", exchange === "mexc" ? "300" : "50");
-      qs.set("exchange", exchange);
-      qs.set("minVol", String(Math.max(0, Math.floor(minVol))));
-      qs.set("spikeMode", spikeMode);
-
-      const res = await fetch(`/api/hot?${qs.toString()}`, {
-        cache: "no-store",
-        signal: ac.signal,
-      });
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const json = (await res.json()) as HotResponse;
-      if (!json?.ok) throw new Error(json?.error || "API returned ok=false");
-
-      const tfServer = json.tf ? sanitizeTf(json.tf, tfSafe) : tfSafe;
-      if (json.tf) setTf((prev) => sanitizeTf(json.tf, prev));
-
-      if (json.exchange) {
-        setExchange((prev) => sanitizeExchange(json.exchange, prev));
-      }
-
-      const data = normalizeHotRows(Array.isArray(json.data) ? json.data : []);
-      setRows(data);
-      setLastTs(json.ts ?? Date.now());
-
-      pushFeedEvents(tfServer, data);
-
-      setSelectedRow((prevSel) => {
-        if (!drawerOpen || !prevSel?.symbol) return prevSel;
-        const updated = data.find((x) => x.symbol === prevSel.symbol);
-        return updated ?? prevSel;
-      });
-    } catch (e: unknown) {
-      if (e instanceof DOMException && e.name === "AbortError") return;
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setLoading(false);
-      inFlightRef.current = false;
-    }
-  }, [tf, exchange, minVol, spikeMode, pushFeedEvents, drawerOpen]);
+  useEffect(() => {
+    pushFeedEvents(tf, rows);
+  }, [rows, tf, pushFeedEvents]);
 
   useEffect(() => {
-    if (mountedRef.current) return;
-    mountedRef.current = true;
-
-    const hasInitial = Array.isArray(initialRows) && initialRows.length > 0;
-    const delayMs = hasInitial ? 600 : 0;
-
-    const id = window.setTimeout(() => refresh(), delayMs);
-    return () => window.clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!mountedRef.current) return;
-    refresh();
-  }, [tf, exchange, minVol, spikeMode, refresh]);
-
-  useEffect(() => {
-    if (!autoRefresh) return;
-    let stopped = false;
-
-    const loop = async () => {
-      while (!stopped) {
-        const ms = Math.max(2, intervalSec) * 1000;
-        await new Promise((r) => setTimeout(r, ms));
-        if (stopped) break;
-        await refresh();
-      }
-    };
-
-    loop();
-    return () => {
-      stopped = true;
-    };
-  }, [autoRefresh, intervalSec, refresh]);
+    if (!drawerOpen || !selectedRow?.symbol) return;
+    const updated = rows.find((x) => x.symbol === selectedRow.symbol);
+    if (updated) setSelectedRow(updated);
+  }, [rows, drawerOpen, selectedRow]);
 
   const { filteredSorted, missingMcapCount } = useMemo(() => {
     const needle = q.trim().toUpperCase();
@@ -510,7 +307,7 @@ export function HotClient({
     setSortKey("score");
     setSortDir("desc");
     setMinVol(0);
-  }, []);
+  }, [setMinVol]);
 
   const clearFeed = useCallback(() => {
     setFeed([]);
@@ -686,7 +483,7 @@ export function HotClient({
           <option value={30}>30s</option>
         </select>
 
-        <Button variant="secondary" onClick={refresh} title="Refresh now">
+        <Button variant="secondary" onClick={() => void refresh()} title="Refresh now">
           <RefreshCw className={["h-4 w-4", loading ? "animate-spin" : ""].join(" ")} />
           {loading ? "Refreshing" : "Refresh"}
         </Button>

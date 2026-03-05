@@ -1,7 +1,7 @@
 import type { Candle } from "@/lib/binance";
 import { fetchKlines, normalizeSymbol, isValidSymbol } from "@/lib/binance";
 import { calcMetrics, type SymbolMetrics } from "@/lib/metrics";
-import SymbolClient from "@/components/symbol-client";
+import { SymbolView } from "@/src/widgets/symbol-view";
 
 type PageProps = {
   params: Promise<{ symbol: string }>;
@@ -30,7 +30,7 @@ export default async function SymbolPage({ params }: PageProps) {
 
   return (
     <main className="space-y-4">
-      <SymbolClient symbol={symbol} initialCandles={initialCandles} initialMetrics={initialMetrics} />
+      <SymbolView symbol={symbol} initialCandles={initialCandles} initialMetrics={initialMetrics} />
     </main>
   );
 }
