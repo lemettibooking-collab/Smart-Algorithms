@@ -25,8 +25,6 @@ type SignalEvent = {
   source?: "klines" | "fallback";
 };
 
-export type { HotSymbol };
-
 function parseVolume(v: unknown) {
   const s = String(v ?? "").trim().toUpperCase();
   const num = Number(s.replace(/[^0-9.]/g, ""));
