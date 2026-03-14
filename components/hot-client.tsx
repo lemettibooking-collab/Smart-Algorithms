@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import TopbarControlsSlot from "@/components/shell/topbar-controls-slot";
 import { Search, SlidersHorizontal, ArrowUpDown, RefreshCw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SymbolDrawer } from "@/components/symbol-drawer";
 import { HotTable, useHot } from "@/src/widgets/hot-table";
+import { MarketPulseBar } from "@/src/widgets/market-pulse";
 import type { HotRow as HotSymbol, HotTf as TF } from "@/src/entities/hot";
 import { sanitizeExchange, sanitizeSpikeMode, sanitizeTf, tfLabel } from "@/src/features/hot-filters";
 import { StatusStrip } from "@/src/features/status-strip";
@@ -121,6 +122,18 @@ function feedSignalBadgeClass(signal: string) {
   }
 }
 
+function subscribeDesktop(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const media = window.matchMedia("(min-width: 1024px)");
+  media.addEventListener("change", onStoreChange);
+  return () => media.removeEventListener("change", onStoreChange);
+}
+
+function getDesktopSnapshot() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(min-width: 1024px)").matches;
+}
+
 export function HotClient({
   initialRows,
   initialTf,
@@ -147,6 +160,7 @@ export function HotClient({
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedRow, setSelectedRow] = useState<HotSymbol | null>(null);
+  const isDesktop = useSyncExternalStore(subscribeDesktop, getDesktopSnapshot, () => false);
 
   const {
     rows,
@@ -497,7 +511,10 @@ export function HotClient({
   return (
     <div className="space-y-4">
       <TopbarControlsSlot>
-        <div className="hidden lg:block rounded-2xl border border-[var(--border)] bg-[var(--controlsBg)] px-5 py-4 shadow-[var(--shadowSm)] dark:bg-[var(--panel)]">{Controls}</div>
+        <div className="hidden space-y-3 lg:block">
+          {isDesktop ? <MarketPulseBar /> : null}
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--controlsBg)] px-5 py-4 shadow-[var(--shadowSm)] dark:bg-[var(--panel)]">{Controls}</div>
+        </div>
       </TopbarControlsSlot>
 
       <StatusStrip
@@ -594,7 +611,12 @@ export function HotClient({
         )}
       </div>
 
-      <div className="lg:hidden rounded-2xl border border-[var(--border)] bg-[var(--controlsBg)] px-4 py-4 shadow-[var(--shadowSm)] dark:bg-[var(--panel)]">{Controls}</div>
+      {!isDesktop ? (
+        <div className="space-y-3 lg:hidden">
+          <MarketPulseBar />
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--controlsBg)] px-4 py-4 shadow-[var(--shadowSm)] dark:bg-[var(--panel)]">{Controls}</div>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--muted2)]">
         <span>Rows: {filteredSorted.length}</span>
