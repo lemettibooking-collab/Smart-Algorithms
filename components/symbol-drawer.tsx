@@ -1,10 +1,13 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo } from "react";
 import { X } from "lucide-react";
 import { AdvancedChartWidget } from "@/src/shared/ui";
 
 type TF = "24h" | "1m" | "5m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1M" | "1y";
+
+const QUOTE_ASSETS = ["USDT", "USDC", "FDUSD", "BUSD", "BTC", "ETH", "BNB", "EUR", "TRY"] as const;
 
 function toTvInterval(tf: string): string {
     const value = String(tf ?? "").trim();
@@ -25,6 +28,64 @@ function toTvInterval(tf: string): string {
     if (lower === "1w") return "W";
     if (value === "1M" || lower === "1mo") return "M";
     return "240";
+}
+
+function formatSpotPairForExchange(symbol: string) {
+    const clean = String(symbol ?? "").trim().toUpperCase();
+    if (!clean) return null;
+    for (const quote of QUOTE_ASSETS) {
+        if (clean.endsWith(quote) && clean.length > quote.length) {
+            return `${clean.slice(0, -quote.length)}_${quote}`;
+        }
+    }
+    return null;
+}
+
+function buildExchangeTradeUrl(exchange: string | undefined, symbol: string) {
+    const pair = formatSpotPairForExchange(symbol);
+    if (!pair) return null;
+    const ex = String(exchange ?? "").trim().toLowerCase();
+    if (ex === "mexc") return `https://www.mexc.com/exchange/${pair}`;
+    if (ex === "binance") return `https://www.binance.com/en/trade/${pair}`;
+    return null;
+}
+
+function ExchangeTradeButton({ exchange, symbol }: { exchange?: string; symbol: string }) {
+    const href = buildExchangeTradeUrl(exchange, symbol);
+    const ex = String(exchange ?? "").trim().toLowerCase();
+    if (!href || (ex !== "mexc" && ex !== "binance")) return null;
+
+    const isMexc = ex === "mexc";
+
+    return (
+        <a
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            aria-label={`Open on ${isMexc ? "MEXC" : "Binance"}`}
+            title={`Open on ${isMexc ? "MEXC" : "Binance"}`}
+            className={[
+                "group inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-all duration-150",
+                "bg-[var(--panel2)] shadow-[0_8px_18px_rgba(15,23,42,0.08)] hover:-translate-y-px hover:bg-[var(--hover)] active:translate-y-0",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--panel)]",
+                isMexc
+                    ? "border-emerald-200/80 focus-visible:ring-emerald-400 dark:border-emerald-400/25 dark:bg-[linear-gradient(180deg,rgba(8,20,22,0.96),rgba(7,17,18,0.88))] dark:hover:border-emerald-300/45 dark:hover:bg-[linear-gradient(180deg,rgba(10,30,32,0.98),rgba(8,20,22,0.92))]"
+                    : "border-amber-200/80 focus-visible:ring-amber-400 dark:border-amber-400/25 dark:bg-[linear-gradient(180deg,rgba(24,20,10,0.96),rgba(18,15,8,0.88))] dark:hover:border-amber-300/45 dark:hover:bg-[linear-gradient(180deg,rgba(30,24,12,0.98),rgba(20,16,8,0.92))]",
+            ].join(" ")}
+        >
+            <span className="flex h-4 items-center transition-transform duration-150 group-hover:scale-[1.04]">
+                <Image
+                    src={isMexc ? "/exchanges/mexc-mark.svg" : "/exchanges/binance-mark.svg"}
+                    alt=""
+                    aria-hidden="true"
+                    width={16}
+                    height={16}
+                    className="h-4 w-4"
+                />
+            </span>
+            <span className="sr-only">{isMexc ? "Open on MEXC" : "Open on Binance"}</span>
+        </a>
+    );
 }
 
 export type HotSymbol = {
@@ -177,6 +238,7 @@ export function SymbolDrawer({
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
                                 <div className="text-lg font-semibold text-[var(--text)] dark:text-slate-100">{symbol || "—"}</div>
+                                <ExchangeTradeButton exchange={exchange} symbol={symbol} />
                                 {row?.signal ? (
                                     <span
                                         className={[

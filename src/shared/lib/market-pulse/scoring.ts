@@ -138,10 +138,13 @@ export function computeEquitiesBreadth(items: EquityPulseItemDto[]) {
 }
 
 export function classifyEquitiesRisk(items: EquityPulseItemDto[]): RiskLabel {
+  if (!items.length) return "mixed";
+  if (items.length < 3) return "mixed";
   const greenCount = items.filter((item) => item.changePct24h > 0).length;
   const redCount = items.filter((item) => item.changePct24h < 0).length;
-  if (greenCount >= 3) return "risk-on";
-  if (redCount >= 3) return "risk-off";
+  const threshold = Math.max(1, Math.ceil(items.length * 0.625));
+  if (greenCount >= threshold && greenCount > redCount) return "risk-on";
+  if (redCount >= threshold && redCount > greenCount) return "risk-off";
   return "mixed";
 }
 

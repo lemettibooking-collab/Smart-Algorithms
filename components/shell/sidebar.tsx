@@ -6,6 +6,7 @@ import Image from "next/image";
 
 const nav = [
     { href: "/hot", label: "Hot Scanner" },
+    { href: "/market-vision", label: "Market Vision" },
     { href: "/alerts", label: "Alerts Table" }, // ← добавили
     { href: "/terminal", label: "Trading Terminal" },
     { href: "/bots", label: "Trading Bots" },
