@@ -14,6 +14,7 @@ const capInFlight = new InFlight<CapMap>();
 
 // ✅ последняя успешная карта (чтобы не “пропадала” при 429)
 let lastGoodMap: CapMap | null = null;
+let lastGoodMapTop1000: CapMap | null = null;
 
 function num(v: unknown, fallback = 0) {
     const n = Number(v);
@@ -87,6 +88,56 @@ export async function getMarketCapMap(): Promise<CapMap> {
             // ✅ при ошибке — не “обнуляем” капитализацию
             if (lastGoodMap && lastGoodMap.size > 0) return lastGoodMap;
             // если есть хоть какой-то cached (даже пустой) — его
+            const c = capCache.get(cacheKey);
+            if (c) return c;
+            const sql = fromEntries(cacheGet<unknown>(`sql:${cacheKey}`));
+            if (sql && sql.size > 0) return sql;
+            return new Map();
+        }
+    })();
+
+    capInFlight.set(cacheKey, p);
+    return p;
+}
+
+export async function getMarketCapMapTop1000(): Promise<CapMap> {
+    const cacheKey = "mcap:coingecko:top1000";
+
+    const cached = capCache.get(cacheKey);
+    if (cached && cached.size > 0) return cached;
+
+    const sqliteCached = fromEntries(cacheGet<unknown>(`sql:${cacheKey}`));
+    if (sqliteCached && sqliteCached.size > 0) {
+        capCache.set(cacheKey, sqliteCached, 10 * 60_000);
+        lastGoodMapTop1000 = sqliteCached;
+        return sqliteCached;
+    }
+
+    const inflight = capInFlight.get(cacheKey);
+    if (inflight) return inflight;
+
+    const p = (async () => {
+        try {
+            const map = await fetchCoinGeckoTopCapMap({ pages: 4, perPage: 250 });
+            if (map.size > 50) {
+                lastGoodMapTop1000 = map;
+                capCache.set(cacheKey, map);
+                cacheSet(`sql:${cacheKey}`, toEntries(map), 12 * 60 * 60_000);
+                cacheSweepExpired(200);
+                return map;
+            }
+
+            if (lastGoodMapTop1000 && lastGoodMapTop1000.size > 0) return lastGoodMapTop1000;
+
+            capCache.set(cacheKey, map);
+            if (map.size > 0) {
+                cacheSet(`sql:${cacheKey}`, toEntries(map), 6 * 60 * 60_000);
+            }
+            return map;
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.log("[mcap] getMarketCapMapTop1000 failed:", msg);
+            if (lastGoodMapTop1000 && lastGoodMapTop1000.size > 0) return lastGoodMapTop1000;
             const c = capCache.get(cacheKey);
             if (c) return c;
             const sql = fromEntries(cacheGet<unknown>(`sql:${cacheKey}`));

@@ -1,4 +1,4 @@
-import type { Direction, PulseLabel, RiskLabel } from "@/src/entities/market-pulse";
+import type { AltBreadthLabel, Direction, MarketStructureBias, PulseLabel, RiskLabel } from "@/src/entities/market-pulse";
 
 export function getFearGreedTone(label: string) {
   switch (label) {
@@ -73,5 +73,43 @@ export function getRiskTone(label: RiskLabel) {
   }
   return {
     badge: "border-slate-300 bg-slate-50 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70",
+  };
+}
+
+export function getAltBreadthTone(label: AltBreadthLabel) {
+  if (label === "extreme-buying" || label === "buying-pressure") {
+    return {
+      badge: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/45 dark:bg-emerald-400/12 dark:text-emerald-200",
+      bar: "bg-emerald-500 dark:bg-emerald-400",
+    };
+  }
+  if (label === "extreme-selling" || label === "selling-pressure") {
+    return {
+      badge: "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/45 dark:bg-rose-400/12 dark:text-rose-200",
+      bar: "bg-rose-500 dark:bg-rose-400",
+    };
+  }
+  return {
+    badge: "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-400/45 dark:bg-sky-400/12 dark:text-sky-200",
+    bar: "bg-sky-500 dark:bg-sky-400",
+  };
+}
+
+export function getStructureTone(bias: MarketStructureBias) {
+  if (bias === "bullish") {
+    return {
+      badge: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/45 dark:bg-emerald-400/12 dark:text-emerald-200",
+      bar: "bg-emerald-500 dark:bg-emerald-400",
+    };
+  }
+  if (bias === "bearish") {
+    return {
+      badge: "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/45 dark:bg-rose-400/12 dark:text-rose-200",
+      bar: "bg-rose-500 dark:bg-rose-400",
+    };
+  }
+  return {
+    badge: "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-400/45 dark:bg-sky-400/12 dark:text-sky-200",
+    bar: "bg-sky-500 dark:bg-sky-400",
   };
 }

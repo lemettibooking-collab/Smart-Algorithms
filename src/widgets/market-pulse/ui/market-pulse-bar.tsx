@@ -2,11 +2,32 @@
 
 import { useEffect, useState } from "react";
 import type { BtcPulseDto, MarketPulseDto } from "@/src/entities/market-pulse";
-import { BtcLiveCard, FearGreedCard, GlobalRiskCard, NewsSentimentCard } from "@/src/entities/market-pulse";
+import { AltcoinBreadthCard, BtcLiveCard, FearGreedCard, GlobalRiskCard, NewsSentimentCard } from "@/src/entities/market-pulse";
 import { fetchMarketPulseSnapshot, marketPulseStreamUrl } from "@/src/shared/api/market-pulse";
 
 function emptySnapshot(): MarketPulseDto {
   const now = Date.now();
+  const emptyMetric = {
+    score: 0,
+    label: "Unavailable",
+    bias: "neutral" as const,
+    confidence: "unavailable" as const,
+    status: "unavailable" as const,
+    source: "smart-algorithms",
+    methodology: "Advanced market structure snapshot unavailable.",
+    stats: [
+      { label: "Status", value: "No data" },
+      { label: "Coverage", value: "Unavailable" },
+      { label: "Signal", value: "Waiting" },
+    ],
+    summary: "Not enough data to build a reliable signal.",
+    updatedAt: now,
+    ageSec: 0,
+    isAvailable: false,
+    isFallback: true,
+    errorCode: "provider_unavailable",
+  };
+
   return {
     fearGreed: {
       value: 50,
@@ -47,13 +68,58 @@ function emptySnapshot(): MarketPulseDto {
       isFallback: true,
       errorCode: "provider_unavailable",
     },
+    altBreadth: {
+      score: 0,
+      label: "neutral",
+      bias: "neutral",
+      confidence: "unavailable",
+      status: "unavailable",
+      source: "smart-algorithms",
+      methodology: "Composite breadth across liquid altcoins on supported spot exchanges.",
+      universe: {
+        eligibleCount: 0,
+        includedCount: 0,
+        coveragePct: 0,
+        exchangeMix: { binance: 0, mexc: 0 },
+      },
+      stats: {
+        advancersPct: 0,
+        upVolumePct: 0,
+        medianReturnPct: 0,
+        advancers: 0,
+        decliners: 0,
+        flats: 0,
+        strongGainers: 0,
+        strongLosers: 0,
+      },
+      components: {
+        breadthScore: 0,
+        volumeBreadthScore: 0,
+        weightedBreadthScore: 0,
+        medianReturnScore: 0,
+        tailBalanceScore: 0,
+        rawScore: 0,
+      },
+      drivers: ["Loading breadth snapshot..."],
+      updatedAt: now,
+      ageSec: 0,
+      isAvailable: false,
+      isFallback: true,
+      errorCode: "provider_unavailable",
+    },
+    btcRotation: emptyMetric,
+    derivativesHeat: emptyMetric,
+    marketLeadership: emptyMetric,
+    breakoutHealth: emptyMetric,
+    stablecoinFlow: emptyMetric,
+    narrativeHeat: emptyMetric,
   };
 }
 
 function PulseSkeleton() {
   return (
-    <div className="grid gap-3 lg:grid-cols-4 md:grid-cols-2">
-      {Array.from({ length: 4 }).map((_, idx) => (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5 lg:grid-cols-3">
+      {Array.from({ length: 5 }).map((_, idx) => (
         <div key={idx} className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadowSm)]">
           <div className="animate-pulse space-y-3">
             <div className="h-3 w-20 rounded bg-[var(--panel2)]" />
@@ -136,11 +202,12 @@ export function MarketPulseBar() {
   const btcStale = !streamConnected && lastBtcTs > 0;
 
   return (
-    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <FearGreedCard data={data.fearGreed} />
       <BtcLiveCard data={data.btc} stale={btcStale} streamConnected={streamConnected} />
       <NewsSentimentCard data={data.sentiment} />
       <GlobalRiskCard data={data.equities} />
+      <AltcoinBreadthCard data={data.altBreadth} />
     </div>
   );
 }

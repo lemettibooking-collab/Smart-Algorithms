@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SymbolDrawer } from "@/components/symbol-drawer";
 import { HotTable, useHot } from "@/src/widgets/hot-table";
-import { MarketPulseBar } from "@/src/widgets/market-pulse";
 import type { HotRow as HotSymbol, HotTf as TF } from "@/src/entities/hot";
 import { sanitizeExchange, sanitizeSpikeMode, sanitizeTf, tfLabel } from "@/src/features/hot-filters";
 import { StatusStrip } from "@/src/features/status-strip";
@@ -511,8 +510,7 @@ export function HotClient({
   return (
     <div className="space-y-4">
       <TopbarControlsSlot>
-        <div className="hidden space-y-3 lg:block">
-          {isDesktop ? <MarketPulseBar /> : null}
+        <div className="hidden lg:block">
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--controlsBg)] px-5 py-4 shadow-[var(--shadowSm)] dark:bg-[var(--panel)]">{Controls}</div>
         </div>
       </TopbarControlsSlot>
@@ -613,7 +611,6 @@ export function HotClient({
 
       {!isDesktop ? (
         <div className="space-y-3 lg:hidden">
-          <MarketPulseBar />
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--controlsBg)] px-4 py-4 shadow-[var(--shadowSm)] dark:bg-[var(--panel)]">{Controls}</div>
         </div>
       ) : null}
