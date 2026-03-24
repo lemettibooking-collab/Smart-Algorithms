@@ -1,48 +1,86 @@
-# AGENTS.md — Smart Algorithms (Next.js/TS)
+# AGENTS.md
 
-## Working rules
-- Act as a senior engineer and debugging agent.
-- Prefer minimal, high-confidence changes. Avoid refactors unless requested.
-- Never change public API contracts or UI behavior unless explicitly asked.
-- Keep code style consistent with the repo. Respect TypeScript types.
-- If you add dependencies, justify them and keep them minimal.
+Project: Smart Algorithms
 
-## Workflow (must follow)
-1) Read relevant files and summarize the suspected root cause in 5–10 bullets.
-2) Propose a plan (3–7 steps) and choose the best approach.
-3) Implement the fix.
-4) Run checks:
-   - npm run lint (if exists)
-   - npm run typecheck (if exists)
-   - npm test (if exists)
-   - npm run dev sanity check if applicable
-5) Provide a clean output:
-   - What changed and why
-   - Unified diff (preferred) OR full files (only if user asks)
-   - Commands used
-   - Manual test checklist
+## Product context
+- Crypto scanner / analytics platform.
+- Stack: Next.js App Router, Tailwind.
+- Heavy API/DB routes use Node runtime.
+- SQLite MVP storage.
+- SSE realtime.
+- TradingView chart in drawer.
+- Current core modules:
+  - Hot Scanner
+  - Alerts / Events
+  - Symbol / Drawer / Chart
+  - Market Pulse
 
-## Output format
-- Use sections: Root cause / Plan / Patch / Verification / Notes.
-- For patches, use unified diff with file paths.
-- If something blocks progress, request the minimal missing info (1–2 items).
+## Collaboration model
+- User is product manager.
+- AI acts as tech lead / architect / reviewer.
+- Codex in VS Code applies narrow patches only.
 
-# Agent Rules (Smart Algorithms)
+## Global rules
+- Minimal diff only.
+- No broad refactor.
+- No unrelated file changes.
+- Do not change API shape unless explicitly requested.
+- Do not drift business logic while "cleaning up" code.
+- If you find a broader issue outside task scope, mention it briefly and do not fix it in the same patch.
 
-## Safety / Scope
-- NO refactors, NO renames, NO formatting-only changes unless explicitly requested.
-- NO API shape changes unless explicitly requested.
-- Keep diffs minimal and localized.
+## Architecture rules
+- Keep UI, domain logic, transport, persistence, and provider adapters separate.
+- Do not move business logic into React components.
+- Do not parse raw provider payloads in UI.
+- For endpoint changes, keep a clear flow:
+  - validation
+  - orchestration
+  - normalization/mapping
+  - response shaping
+- Prefer explicit DTO boundaries and stable response mapping.
 
-## Workflow
-- Always output a unified diff (git-style).
-- Always list commands you ran and their outputs (short).
-- Always include a manual test checklist.
+## Sensitive zones
+- /api/hot
+- /api/klines
+- /api/alerts
+- /api/alerts/events
+- /api/events
+- /api/prefs
+- /api/stream/events
+- /api/stream/hot
+- /api/stream/market-pulse
+- /api/walls
+- /api/market-pulse
 
-## Debugging
-- Add logs only if gated by env var DEBUG_HOT=1 (or similar).
-- Remove debug logs before final.
+## Data and provider rules
+- External providers may fail, degrade, or return partial/malformed data.
+- Handle partial data explicitly.
+- Preserve fallback chains unless the task explicitly changes them.
+- Do not silently drop invalid or stale provider data without reasoned handling.
+- Keep null safety high.
 
-## Constraints
-- Do not introduce new dependencies unless requested.
-- If dependency is necessary, justify it and keep it minimal.
+## Realtime rules
+- Be careful with SSE payload shape and update cadence.
+- Do not introduce unnecessary reconnection or stream noise.
+- Do not break empty/loading/error states for live modules.
+
+## Performance and reliability rules
+- Avoid unnecessary heavy recomputation in route handlers.
+- Respect caching and in-flight dedupe patterns where already present.
+- Be careful with rate limiting.
+- Do not add polling or expensive provider calls without necessity.
+
+## Output expectations for code changes
+- Keep patch focused.
+- Explain changes in a short structured list.
+- Mention if env or provider behavior matters.
+- State what should be manually verified after the patch.
+
+## Forbidden unless explicitly requested
+- Redis migration
+- Postgres migration
+- Broad storage abstraction rewrite
+- New service extraction
+- Large folder restructuring
+- API response redesign
+- Unrelated UI polish during data-layer tasks
